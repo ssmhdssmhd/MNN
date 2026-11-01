@@ -119,6 +119,14 @@ android {
         }
 
         signingConfigs {
+            // Fixed keystore committed in the repo so all builds (local + CI) share the
+            // same signature and users can upgrade across versions without uninstalling.
+            debug {
+                storeFile file('debug.keystore')
+                storePassword 'mxllm2026'
+                keyAlias 'mxllm'
+                keyPassword 'mxllm2026'
+            }
             release {
                 def keystoreFile = System.getenv("KEYSTORE_FILE")
                 if (keystoreFile) {
@@ -126,14 +134,21 @@ android {
                     storePassword System.getenv("KEYSTORE_PASSWORD")
                     keyAlias System.getenv("KEY_ALIAS")
                     keyPassword System.getenv("KEY_PASSWORD")
+                } else {
+                    // Fall back to the project keystore so release builds are also consistently signed.
+                    storeFile file('debug.keystore')
+                    storePassword 'mxllm2026'
+                    keyAlias 'mxllm'
+                    keyPassword 'mxllm2026'
                 }
             }
         }
         buildTypes {
+            debug {
+                signingConfig signingConfigs.debug
+            }
             release {
-                if (System.getenv("KEYSTORE_FILE")) {
-                    signingConfig signingConfigs.release
-                }
+                signingConfig signingConfigs.release
                 applicationIdSuffix ".release"
             }
         }
