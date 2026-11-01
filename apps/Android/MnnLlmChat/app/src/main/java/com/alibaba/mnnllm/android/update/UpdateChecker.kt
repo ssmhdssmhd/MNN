@@ -339,9 +339,35 @@ class UpdateChecker(private val context: Context) {
         targetFile: File,
         onProgress: (Long, Long) -> Unit
     ) {
+        // Build an ordered list of URLs to try: original first, then GitHub mirrors.
+        // GitHub releases are often slow or blocked in mainland China, so we fall back
+        // to public mirror proxies when the direct download fails.
+        val urlsToTry = buildDownloadUrls(info.downloadUrl)
+        var lastError: Throwable? = null
+        for (url in urlsToTry) {
+            try {
+                downloadFromUrl(url, info.size, partFile, targetFile, onProgress)
+                return
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "Download failed for $url: ${e.message}")
+                // Reset partial file before trying the next mirror so we start clean.
+                if (partFile.exists()) partFile.delete()
+            }
+        }
+        throw lastError ?: IOException("all download URLs failed")
+    }
+
+    private fun downloadFromUrl(
+        url: String,
+        expectedSize: Long,
+        partFile: File,
+        targetFile: File,
+        onProgress: (Long, Long) -> Unit
+    ) {
         val existingLength = if (partFile.exists()) partFile.length() else 0L
         val requestBuilder = Request.Builder()
-            .url(info.downloadUrl)
+            .url(url)
             .header("User-Agent", USER_AGENT)
         if (existingLength > 0) {
             requestBuilder.header("Range", "bytes=$existingLength-")
@@ -365,7 +391,7 @@ class UpdateChecker(private val context: Context) {
                 // 服务端不支持 Range，从头开始覆盖
                 partFile.delete()
             }
-            var total = info.size
+            var total = expectedSize
             val contentRange = response.header("Content-Range")
             if (!contentRange.isNullOrBlank()) {
                 val rangeTotal = contentRange.substringAfterLast('/', "").toLongOrNull()
@@ -375,7 +401,7 @@ class UpdateChecker(private val context: Context) {
             } else {
                 total = response.body?.contentLength()?.takeIf { it > 0 }?.let {
                     it + (if (append) existingLength else 0L)
-                } ?: info.size
+                } ?: expectedSize
             }
 
             var written = if (append) existingLength else 0L
@@ -415,6 +441,42 @@ class UpdateChecker(private val context: Context) {
         if (!partFile.renameTo(targetFile)) {
             throw IOException("cannot rename part file")
         }
+    }
+
+    /** Detect whether the device is in a Chinese locale (zh_CN). */
+    private fun isChineseLocale(): Boolean {
+        val config = context.resources.configuration
+        val locale = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            if (config.locales.isEmpty) null else config.locales[0]
+        } else {
+            @Suppress("DEPRECATION")
+            config.locale
+        }
+        return locale != null && locale.language == "zh" && locale.country == "CN"
+    }
+
+    /**
+     * Build the ordered list of download URLs to try for a GitHub release asset.
+     * For Chinese-locale devices, mirror proxies are prepended so the (often slow/blocked)
+     * direct GitHub download is only used as a fallback.
+     */
+    private fun buildDownloadUrls(originalUrl: String): List<String> {
+        val mirrors = listOf(
+            "https://ghproxy.com/",
+            "https://mirror.ghproxy.com/",
+            "https://gh-proxy.com/"
+        )
+        val urls = mutableListOf<String>()
+        if (isChineseLocale()) {
+            // Try mirrors first in China; fall back to the original GitHub URL.
+            mirrors.forEach { urls.add(it + originalUrl) }
+            urls.add(originalUrl)
+        } else {
+            // Outside China, try the direct URL first; mirrors are a fallback.
+            urls.add(originalUrl)
+            mirrors.forEach { urls.add(it + originalUrl) }
+        }
+        return urls
     }
 
     private fun isValidApk(context: Context, file: File): Boolean {

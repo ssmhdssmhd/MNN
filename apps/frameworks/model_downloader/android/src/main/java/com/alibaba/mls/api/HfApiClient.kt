@@ -2,6 +2,8 @@
 // Copyright (c) 2024 Alibaba Group Holding Limited All rights reserved.
 package com.alibaba.mls.api
 
+import android.content.res.Configuration
+import android.os.Build
 import okhttp3.OkHttpClient
 import retrofit2.Call
 import retrofit2.Retrofit
@@ -44,7 +46,33 @@ class HfApiClient(val host: String) {
         const val HOST_DEFAULT = "huggingface.co"
         const val HOST_CN = "hf-mirror.com"
 
-        val bestClient: HfApiClient?
-            get() = HfApiClient(HOST_DEFAULT)  // Use huggingface.co directly
+        /** Detect whether the device is in a Chinese locale (zh_CN). */
+        private fun isChineseLocale(): Boolean {
+            val app = ApplicationProvider.application ?: return false
+            val config: Configuration = app.resources.configuration
+            val locale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (config.locales.isEmpty) null else config.locales[0]
+            } else {
+                @Suppress("DEPRECATION")
+                config.locale
+            }
+            return locale != null && locale.language == "zh" && locale.country == "CN"
+        }
+
+        /**
+         * Pick the best HuggingFace host for the current locale.
+         * Chinese users default to the mirror (hf-mirror.com) because huggingface.co
+         * is often slow or blocked in mainland China; others use huggingface.co.
+         */
+        val bestHost: String
+            get() = if (isChineseLocale()) HOST_CN else HOST_DEFAULT
+
+        /** Client bound to [bestHost]. */
+        val bestClient: HfApiClient
+            get() = HfApiClient(bestHost)
+
+        /** The fallback host to try when [bestHost] fails. */
+        val fallbackHost: String
+            get() = if (bestHost == HOST_DEFAULT) HOST_CN else HOST_DEFAULT
     }
 }

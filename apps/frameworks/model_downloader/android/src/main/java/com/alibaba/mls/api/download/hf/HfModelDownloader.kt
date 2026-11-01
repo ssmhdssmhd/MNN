@@ -20,7 +20,6 @@ import com.alibaba.mls.api.download.ModelFileDownloader.FileDownloadListener
 import com.alibaba.mls.api.download.ModelRepoDownloader
 import com.alibaba.mls.api.download.hf.HfFileMetadataUtils.getFileMetadata
 import com.alibaba.mls.api.HfApiClient
-import com.alibaba.mls.api.HfApiClient.Companion.bestClient
 import com.alibaba.mls.api.HfFileMetadata
 import com.alibaba.mls.api.HfRepoInfo
 import com.alibaba.mls.api.HfTreeItem
@@ -49,15 +48,23 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
 
     private fun getHfApiClient(): HfApiClient {
         if (hfApiClient == null) {
-            hfApiClient = bestClient
-        }
-        if (hfApiClient == null) {
-            hfApiClient = HfApiClient(HfApiClient.HOST_DEFAULT)
+            hfApiClient = HfApiClient(currentHost)
         }
         return hfApiClient!!
     }
     private var hfApiClient: HfApiClient? = null
     private var metaInfoClient: OkHttpClient? = null
+
+    /** Host currently in use; starts as [HfApiClient.bestHost] and may switch to the fallback. */
+    private var currentHost: String = HfApiClient.bestHost
+
+    /** Switch to the fallback host and recreate the API client. */
+    private fun switchToFallbackHost() {
+        currentHost = HfApiClient.fallbackHost
+        hfApiClient = null
+        metaInfoClient = null
+        Log.d(TAG, "Switched HF host to $currentHost")
+    }
 
     override fun setListener(callback: ModelRepoDownloadCallback?) {
         this.callback = callback
@@ -145,7 +152,19 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
         DownloadCoroutineManager.launchDownload {
             try {
                 callback?.onDownloadPending(modelId)
-                val repoInfo = fetchRepoInfo(modelId)
+                // Reset to the locale-preferred host at the start of each download.
+                currentHost = HfApiClient.bestHost
+                hfApiClient = null
+                metaInfoClient = null
+                val repoInfo = try {
+                    fetchRepoInfo(modelId)
+                } catch (e: FileDownloadException) {
+                    // Primary host failed (e.g. huggingface.co blocked in China);
+                    // retry once with the fallback host (hf-mirror.com, or vice versa).
+                    Log.w(TAG, "Repo info fetch failed on $currentHost, retrying with fallback: ${e.message}")
+                    switchToFallbackHost()
+                    fetchRepoInfo(modelId)
+                }
                 downloadHfRepo(repoInfo)
             } catch (e: FileDownloadException) {
                 callback?.onDownloadFailed(modelId, e)
@@ -155,7 +174,12 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
 
     override suspend fun checkUpdate(modelId: String) {
         try {
-            fetchRepoInfo(modelId)
+            try {
+                fetchRepoInfo(modelId)
+            } catch (e: FileDownloadException) {
+                switchToFallbackHost()
+                fetchRepoInfo(modelId)
+            }
         } catch (e: FileDownloadException) {
             Log.e(TAG, "Failed to check update for $modelId", e)
         }
