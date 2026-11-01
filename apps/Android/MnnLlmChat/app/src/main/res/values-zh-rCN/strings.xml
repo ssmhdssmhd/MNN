@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MNN Chat</string>
+    <string name="app_name">沫兮本地化 AI</string>
     <string name="title_activity_main">MainActivity</string>
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
@@ -178,6 +178,8 @@
     <string name="default_8080">默认 8080</string>
     <string name="server_access_address">服务器访问地址</string>
     <string name="ip_hint">如 0.0.0.0, 127.0.0.1</string>
+    <string name="access_url">访问地址</string>
+    <string name="access_url_copied">访问地址已复制</string>
     <string name="local_loopback">本地回环</string>
     <string name="listen_all">监听所有</string>
     <string name="auto_detect">自动获取</string>
@@ -600,7 +602,7 @@
     <string name="update_available">有新版本</string>
     <string name="menu_copy_error_info">复制错误信息</string>
     <string name="error_info_copied">错误信息已复制到剪贴板</string>
-    <string name="download_service_title">MNN Chat 下载服务</string>
+    <string name="download_service_title">沫兮本地化 AI 下载服务</string>
     <string name="downloading_single_model">正在下载 %1$s</string>
     <string name="downloading_multiple_models">正在下载 %1$d 个模型</string>
     
@@ -635,7 +637,7 @@
     
     <!-- Privacy Policy Strings -->
     <string name="privacy_policy_title">崩溃数据采集确认</string>
-    <string name="privacy_policy_content">为了提升应用稳定性，MNN Chat 可通过 Firebase Crashlytics 采集崩溃与诊断数据。\n\n这些数据仅用于定位和修复崩溃、提升稳定性以及加快版本迭代。\n\n你可以自主选择是否开启：\n• 同意：允许上传崩溃和诊断数据\n• 不同意：不上传任何崩溃数据\n\n你的选择不会影响应用核心功能使用。</string>
+    <string name="privacy_policy_content">为了提升应用稳定性，沫兮本地化 AI 可通过 Firebase Crashlytics 采集崩溃与诊断数据。\n\n这些数据仅用于定位和修复崩溃、提升稳定性以及加快版本迭代。\n\n你可以自主选择是否开启：\n• 同意：允许上传崩溃和诊断数据\n• 不同意：不上传任何崩溃数据\n\n你的选择不会影响应用核心功能使用。</string>
     <string name="privacy_policy_agree">我已了解并同意采集崩溃数据用于稳定性改进</string>
     <string name="privacy_policy_agree_button">同意并开启</string>
     <string name="privacy_policy_disagree">不同意并继续使用</string>

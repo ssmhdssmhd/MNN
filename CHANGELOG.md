@@ -1,5 +1,12 @@
 # 更新日志
 
+## v0.0.2 (2026-11-01)
+
+- 两个 App 名称统一改为「沫兮本地化 AI」
+- MnnLlmChat 应用图标替换为 [MXLOGO](https://github.com/ssmhdssmhd/MXLOGO) 图标
+- API 设置页新增「访问地址」实时预览，显示 `http://主机:端口/v1`，点击即可复制
+- API 控制台在服务启动中也会显示完整端点地址
+
 ## v0.0.1 (2026-11-01)
 
 - 复刻 [alibaba/MNN](https://github.com/alibaba/MNN) 源码，默认分支 `main`

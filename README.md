@@ -14,6 +14,8 @@
 
 历史构建产物见 [Releases](https://github.com/ssmhdssmhd/MNN/releases) 与 Actions 的 Artifacts。
 
+> 两个 App 的桌面显示名称均为「沫兮本地化 AI」。MnnLlmChat 的 API 设置页实时显示访问地址（如 `http://127.0.0.1:8080/v1`），点击即可复制。
+
 ## 版本
 
 - 当前版本：见 [VERSION](VERSION)

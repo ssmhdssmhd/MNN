@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MNN Chat</string>
+    <string name="app_name">沫兮本地化 AI</string>
     <string name="title_activity_main">MainActivity</string>
     <string name="navigation_drawer_open">開啟導覽抽屜</string>
     <string name="navigation_drawer_close">關閉導覽抽屜</string>
@@ -177,6 +177,8 @@
     <string name="default_8080">預設 8080</string>
     <string name="server_access_address">伺服器存取位址</string>
     <string name="ip_hint">例如 0.0.0.0, 127.0.0.1</string>
+    <string name="access_url">存取位址</string>
+    <string name="access_url_copied">存取位址已複製</string>
     <string name="local_loopback">本機回環</string>
     <string name="listen_all">監聽所有</string>
     <string name="auto_detect">自動取得</string>
@@ -599,7 +601,7 @@
     <string name="update_available">有新版本</string>
     <string name="menu_copy_error_info">複製錯誤資訊</string>
     <string name="error_info_copied">錯誤資訊已複製到剪貼簿</string>
-    <string name="download_service_title">MNN Chat 下載服務</string>
+    <string name="download_service_title">沫兮本地化 AI 下載服務</string>
     <string name="downloading_single_model">正在下載 %1$s</string>
     <string name="downloading_multiple_models">正在下載 %1$d 個模型</string>
     
@@ -634,7 +636,7 @@
     
     <!-- Privacy Policy Strings -->
     <string name="privacy_policy_title">當機資料採集確認</string>
-    <string name="privacy_policy_content">為了提升應用程式穩定性，MNN Chat 可透過 Firebase Crashlytics 採集當機與診斷資料。\n\n這些資料僅用於定位和修復當機、提升穩定性以及加快版本迭代。\n\n您可以自主選擇是否開啟：\n• 同意：允許上傳當機和診斷資料\n• 不同意：不上傳任何當機資料\n\n您的選擇不會影響應用程式核心功能的使用。</string>
+    <string name="privacy_policy_content">為了提升應用程式穩定性，沫兮本地化 AI 可透過 Firebase Crashlytics 採集當機與診斷資料。\n\n這些資料僅用於定位和修復當機、提升穩定性以及加快版本迭代。\n\n您可以自主選擇是否開啟：\n• 同意：允許上傳當機和診斷資料\n• 不同意：不上傳任何當機資料\n\n您的選擇不會影響應用程式核心功能的使用。</string>
     <string name="privacy_policy_agree">我已了解並同意採集當機資料用於穩定性改進</string>
     <string name="privacy_policy_agree_button">同意並開啟</string>
     <string name="privacy_policy_disagree">不同意並繼續使用</string>

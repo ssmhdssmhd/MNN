@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MNN Chat</string>
+    <string name="app_name">沫兮本地化 AI</string>
     <string name="title_activity_main">MainActivity</string>
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
@@ -191,6 +191,8 @@
     <string name="default_8080">Default 8080</string>
     <string name="server_access_address">Server Access Address</string>
     <string name="ip_hint">e.g. 0.0.0.0, 127.0.0.1</string>
+    <string name="access_url">Access URL</string>
+    <string name="access_url_copied">Access URL copied to clipboard</string>
     <string name="local_loopback">Localhost</string>
     <string name="listen_all">All IPs</string>
     <string name="auto_detect">Auto</string>
@@ -613,7 +615,7 @@
     <string name="update_available">Update Available</string>
     <string name="menu_copy_error_info">Copy Error Info</string>
     <string name="error_info_copied">Error information copied to clipboard</string>
-    <string name="download_service_title">MNN Chat Download Service</string>
+    <string name="download_service_title">沫兮本地化 AI Download Service</string>
     <string name="downloading_single_model">Downloading %1$s</string>
     <string name="downloading_multiple_models">Downloading %1$d models</string>
     
@@ -648,7 +650,7 @@
     
     <!-- Privacy Policy Strings -->
     <string name="privacy_policy_title">Crash Data Consent</string>
-    <string name="privacy_policy_content">To improve app stability, MNN Chat can collect crash and diagnostic data through Firebase Crashlytics.\n\nWe only use this data to locate and fix crashes, improve reliability, and accelerate iteration.\n\nYou can choose whether to enable this collection:\n• Agree: allow crash and diagnostic reporting\n• Disagree: no crash data is uploaded\n\nYour choice will not affect core app usage.</string>
+    <string name="privacy_policy_content">To improve app stability, 沫兮本地化 AI can collect crash and diagnostic data through Firebase Crashlytics.\n\nWe only use this data to locate and fix crashes, improve reliability, and accelerate iteration.\n\nYou can choose whether to enable this collection:\n• Agree: allow crash and diagnostic reporting\n• Disagree: no crash data is uploaded\n\nYour choice will not affect core app usage.</string>
     <string name="privacy_policy_agree">I understand and agree to crash data collection for stability improvements</string>
     <string name="privacy_policy_agree_button">Agree and Enable</string>
     <string name="privacy_policy_disagree">Disagree and Continue</string>

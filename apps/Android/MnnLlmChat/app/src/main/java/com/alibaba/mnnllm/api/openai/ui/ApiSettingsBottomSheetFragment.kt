@@ -95,6 +95,18 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
         updateCorsVisibility()
         updateAuthVisibility()
+        updateAccessUrl()
+    }
+
+    /** 显示当前配置的完整访问地址，监听所有网卡时用回环地址便于调试。 */
+    private fun updateAccessUrl() {
+        val host = when {
+            currentIpAddress.isBlank() -> "127.0.0.1"
+            currentIpAddress == "0.0.0.0" -> "127.0.0.1"
+            else -> currentIpAddress
+        }
+        val scheme = if (useHttpsUrl) "https" else "http"
+        binding.textAccessUrl.text = "$scheme://$host:$currentPort/v1"
     }
 
     private fun setupNetworkSettings() {
@@ -106,16 +118,28 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                     //Ignore invalid input
                 }
             }
+            updateAccessUrl()
         }
 
         binding.editIpAddress.addTextChangedListener { text ->
             if (!text.isNullOrEmpty()) {
                 currentIpAddress = text.toString()
             }
+            updateAccessUrl()
         }
 
         binding.switchUseHttpsUrl.setOnCheckedChangeListener { _, isChecked ->
             useHttpsUrl = isChecked
+            updateAccessUrl()
+        }
+
+        binding.textAccessUrl.setOnClickListener {
+            val clipboard = requireContext()
+                .getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(
+                android.content.ClipData.newPlainText("API URL", binding.textAccessUrl.text)
+            )
+            Toast.makeText(requireContext(), getString(R.string.access_url_copied), Toast.LENGTH_SHORT).show()
         }
 
         //IP address quick setup button

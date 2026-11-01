@@ -185,8 +185,10 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_orange_dark, null))
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
-                binding.textApiEndpoint.visibility = View.GONE
-                binding.labelApiEndpoint.visibility = View.GONE
+                binding.textApiEndpoint.text =
+                    "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/chat/completions"
+                binding.textApiEndpoint.visibility = View.VISIBLE
+                binding.labelApiEndpoint.visibility = View.VISIBLE
             }
             serverState in listOf(ServerEventManager.ServerState.STOP_PREPARING, ServerEventManager.ServerState.STOPPING) -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is stopping")
