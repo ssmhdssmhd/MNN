@@ -26,6 +26,8 @@ import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
+import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
+import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -92,8 +94,18 @@ class MainSettingsFragment : Fragment() {
 
         setupCrashDiagnostics()
         setupResetApiConfig()
+        setupApiEntries()
         setupUpdateAndVersion()
         setupDebugMode(sharedPreferences)
+    }
+
+    private fun setupApiEntries() {
+        binding.btnApiSettings.setOnClickListener {
+            ApiSettingsBottomSheetFragment().show(childFragmentManager, "ApiSettingsBottomSheetFragment")
+        }
+        binding.btnApiConsole.setOnClickListener {
+            ApiConsoleBottomSheetFragment.newInstance(null).show(childFragmentManager, "ApiConsoleBottomSheetFragment")
+        }
     }
 
     private fun setupDownloadProvider(

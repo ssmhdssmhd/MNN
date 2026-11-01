@@ -22,7 +22,8 @@ class BottomTabBar @JvmOverloads constructor(
     enum class Tab(@IdRes val viewId: Int) {
         LOCAL_MODELS(R.id.tab_local_models),
         MODEL_MARKET(R.id.tab_model_market),
-        BENCHMARK(R.id.tab_benchmark)
+        BENCHMARK(R.id.tab_benchmark),
+        SETTINGS(R.id.tab_settings)
     }
 
     private var listener: ((Tab) -> Unit)? = null
@@ -30,6 +31,7 @@ class BottomTabBar @JvmOverloads constructor(
     private val tabLocalModels: LinearLayout
     private val tabModelMarket: LinearLayout
     private val tabBenchmark: LinearLayout
+    private val tabSettings: LinearLayout
 
     init {
         LayoutInflater.from(context)
@@ -38,10 +40,12 @@ class BottomTabBar @JvmOverloads constructor(
         tabLocalModels      = findViewById(R.id.tab_local_models)
         tabModelMarket  = findViewById(R.id.tab_model_market)
         tabBenchmark = findViewById(R.id.tab_benchmark)
+        tabSettings = findViewById(R.id.tab_settings)
 
         tabLocalModels.setOnClickListener { select(Tab.LOCAL_MODELS) }
         tabModelMarket.setOnClickListener { select(Tab.MODEL_MARKET) }
         tabBenchmark.setOnClickListener { select(Tab.BENCHMARK) }
+        tabSettings.setOnClickListener { select(Tab.SETTINGS) }
         select(Tab.LOCAL_MODELS)
     }
 
@@ -54,6 +58,7 @@ class BottomTabBar @JvmOverloads constructor(
             tabLocalModels.isSelected -> Tab.LOCAL_MODELS
             tabModelMarket.isSelected -> Tab.MODEL_MARKET
             tabBenchmark.isSelected -> Tab.BENCHMARK
+            tabSettings.isSelected -> Tab.SETTINGS
             else -> Tab.LOCAL_MODELS
         }
     }
@@ -62,6 +67,7 @@ class BottomTabBar @JvmOverloads constructor(
         tabLocalModels.isSelected     = (tab == Tab.LOCAL_MODELS)
         tabModelMarket.isSelected = (tab == Tab.MODEL_MARKET)
         tabBenchmark.isSelected = (tab == Tab.BENCHMARK)
+        tabSettings.isSelected = (tab == Tab.SETTINGS)
 
         // Find and update icon/text selected states if they exist
         findView<ImageView>(R.id.icon_local_models)?.isSelected = tabLocalModels.isSelected
@@ -70,6 +76,8 @@ class BottomTabBar @JvmOverloads constructor(
         findView<TextView>(R.id.text_model_market)?.isSelected = tabModelMarket.isSelected
         findView<ImageView>(R.id.icon_benchmark)?.isSelected = tabBenchmark.isSelected
         findView<TextView>(R.id.text_benchmark)?.isSelected = tabBenchmark.isSelected
+        findView<ImageView>(R.id.icon_settings)?.isSelected = tabSettings.isSelected
+        findView<TextView>(R.id.text_settings)?.isSelected = tabSettings.isSelected
 
         listener?.invoke(tab)
     }

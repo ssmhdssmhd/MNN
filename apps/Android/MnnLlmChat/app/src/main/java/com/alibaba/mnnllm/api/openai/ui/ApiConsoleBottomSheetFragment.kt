@@ -39,7 +39,7 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
 
     companion object {
         const val TAG = "ApiConsoleBottomSheetFragment"
-        fun newInstance(chatActivity: ChatActivity): ApiConsoleBottomSheetFragment {
+        fun newInstance(chatActivity: ChatActivity? = null): ApiConsoleBottomSheetFragment {
             return ApiConsoleBottomSheetFragment().apply {
                 this.chatActivity = chatActivity
             }

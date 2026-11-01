@@ -94,5 +94,32 @@
                 android:textSize="12sp"
                 android:textColor="@color/tab_text_selector"/>
         </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/tab_settings"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:clickable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless">
+
+            <ImageView
+                android:id="@+id/icon_settings"
+                android:layout_width="@dimen/bottom_tab_icon_size"
+                android:layout_height="@dimen/bottom_tab_icon_size"
+                android:layout_marginBottom="4dp"
+                app:tint="@color/tab_text_selector"
+                android:src="@drawable/ic_settings_24dp" />
+
+            <TextView
+                android:id="@+id/text_settings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/settings"
+                android:textSize="12sp"
+                android:textColor="@color/tab_text_selector"/>
+        </LinearLayout>
     </LinearLayout>
 </merge>

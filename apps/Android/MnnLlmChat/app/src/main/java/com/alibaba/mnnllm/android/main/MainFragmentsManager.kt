@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import com.alibaba.mnnllm.android.benchmark.BenchmarkFragment
+import com.alibaba.mnnllm.android.mainsettings.MainSettingsFragment
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
 import com.alibaba.mnnllm.android.utils.Searchable
@@ -30,6 +31,7 @@ class MainFragmentManager(
     private var modelListFragment: ModelListFragment? = null
     private var modelMarketFragment: ModelMarketFragment? = null
     private var benchmarkFragment: BenchmarkFragment? = null
+    private var settingsFragment: MainSettingsFragment? = null
     var activeFragment: Fragment? = null
 
     /** * An interface for the manager to communicate important events back to the hosting Activity. * This lets Activity can respond to Fragment changes to updateits own UI (e.g., Toolbar title).*/
@@ -46,8 +48,10 @@ class MainFragmentManager(
             modelListFragment = ModelListFragment()
             modelMarketFragment = ModelMarketFragment()
             benchmarkFragment = BenchmarkFragment()
+            settingsFragment = MainSettingsFragment()
 
             activity.supportFragmentManager.beginTransaction()
+                .add(containerId, settingsFragment!!, TAG_SETTINGS).hide(settingsFragment!!)
                 .add(containerId, benchmarkFragment!!, TAG_BENCHMARK).hide(benchmarkFragment!!)
                 .add(containerId, modelMarketFragment!!, TAG_MARKET).hide(modelMarketFragment!!)
                 .add(containerId, modelListFragment!!, TAG_LIST) //Default display
@@ -58,12 +62,13 @@ class MainFragmentManager(
             modelListFragment = activity.supportFragmentManager.findFragmentByTag(TAG_LIST) as? ModelListFragment
             modelMarketFragment = activity.supportFragmentManager.findFragmentByTag(TAG_MARKET) as? ModelMarketFragment
             benchmarkFragment = activity.supportFragmentManager.findFragmentByTag(TAG_BENCHMARK) as? BenchmarkFragment
+            settingsFragment = activity.supportFragmentManager.findFragmentByTag(TAG_SETTINGS) as? MainSettingsFragment
 
             val activeTag = savedInstanceState.getString(SAVED_STATE_ACTIVE_TAG)
             if (activeTag != null) {
                 activeFragment = activity.supportFragmentManager.findFragmentByTag(activeTag)
             } else {
-                activeFragment = listOfNotNull(modelListFragment, modelMarketFragment, benchmarkFragment)
+                activeFragment = listOfNotNull(modelListFragment, modelMarketFragment, benchmarkFragment, settingsFragment)
                     .find { !it.isHidden }
             }
         }
@@ -99,6 +104,7 @@ class MainFragmentManager(
                 BottomTabBar.Tab.LOCAL_MODELS -> modelListFragment
                 BottomTabBar.Tab.MODEL_MARKET -> modelMarketFragment
                 BottomTabBar.Tab.BENCHMARK -> benchmarkFragment
+                BottomTabBar.Tab.SETTINGS -> settingsFragment
             }
 
             if (targetFragment != null && activeFragment != targetFragment) {
@@ -123,6 +129,7 @@ class MainFragmentManager(
         return when (fragment) {
             is ModelMarketFragment -> BottomTabBar.Tab.MODEL_MARKET
             is BenchmarkFragment -> BottomTabBar.Tab.BENCHMARK
+            is MainSettingsFragment -> BottomTabBar.Tab.SETTINGS
             else -> BottomTabBar.Tab.LOCAL_MODELS
         }
     }
@@ -139,6 +146,7 @@ class MainFragmentManager(
         private const val TAG_LIST = "list"
         private const val TAG_MARKET = "market"
         private const val TAG_BENCHMARK = "benchmark"
+        private const val TAG_SETTINGS = "settings"
         private const val SAVED_STATE_ACTIVE_TAG = "active_fragment_tag"
     }
 }

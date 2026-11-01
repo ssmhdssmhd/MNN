@@ -35,7 +35,6 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.benchmark.BenchmarkFragment
 import com.alibaba.mnnllm.android.chat.ChatRouter
 import com.alibaba.mnnllm.android.history.ChatHistoryFragment
-import com.alibaba.mnnllm.android.mainsettings.MainSettingsActivity
 import com.alibaba.mnnllm.android.modelist.ModelListFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketFragment
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
@@ -44,7 +43,6 @@ import com.alibaba.mnnllm.android.utils.AnalyticsTracker
 import com.alibaba.mnnllm.android.utils.CrashUtil
 import com.alibaba.mnnllm.android.utils.GithubUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
-import com.alibaba.mnnllm.android.utils.RouterUtils.startActivity
 import com.alibaba.mnnllm.android.utils.Searchable
 import com.alibaba.mnnllm.android.widgets.BottomTabBar
 import com.alibaba.mnnllm.android.widgets.ModelSwitcherView
@@ -156,12 +154,6 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         val issueMenu = menu.findItem(R.id.action_github_issue)
         issueMenu.setOnMenuItemClickListener { 
             onReportIssue(null)
-            true
-        }
-        
-        val settingsMenu = menu.findItem(R.id.action_settings)
-        settingsMenu.setOnMenuItemClickListener {
-            startActivity(this@MainActivity, MainSettingsActivity::class.java)
             true
         }
 
@@ -381,6 +373,12 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
                 AnalyticsTracker.logPageView(this, "benchmark")
                 setDrawerEnabled(false)
             }
+            BottomTabBar.Tab.SETTINGS -> {
+                updateMainTitleSwitcherMode(false)
+                mainTitleSwitcher.text = getString(R.string.settings)
+                AnalyticsTracker.logPageView(this, "settings")
+                setDrawerEnabled(false)
+            }
         }
         updateExpandableFabLayout(newTab)
         invalidateOptionsMenu()
@@ -420,7 +418,10 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
         updateChecker!!.checkForUpdates(this, false)
         mainFragmentManager = MainFragmentManager(this, R.id.main_fragment_container, bottomNav, this, this)
         mainFragmentManager.initialize(savedInstanceState)
-        bottomNav.post { setDrawerEnabled(bottomNav.getSelectedTab() != BottomTabBar.Tab.BENCHMARK) }
+        bottomNav.post {
+            val tab = bottomNav.getSelectedTab()
+            setDrawerEnabled(tab != BottomTabBar.Tab.BENCHMARK && tab != BottomTabBar.Tab.SETTINGS)
+        }
         // History fragment is lazy-loaded when drawer is opened via DrawerListener
         Log.d(TAG, "onCreate: Before bottomNav.select, currentFragment: ${currentFragment?.javaClass?.simpleName}")
 
