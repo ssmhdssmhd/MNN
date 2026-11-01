@@ -7,7 +7,7 @@ import android.content.Intent
 import android.net.Uri
 
 object GithubUtils {
-    private const val repoGithubUrl = "https://github.com/alibaba/MNN"
+    private const val repoGithubUrl = "https://github.com/ssmhdssmhd/MNN"
 
     fun openInBrowser(context: Context, url: String?) {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))

@@ -194,6 +194,15 @@
     <string name="api_model_selection_dialog_title">选择 API 可用模型</string>
     <string name="api_no_local_models">暂无本地模型</string>
     <string name="api_model_selection_count">已选择 %d 个模型</string>
+    <string name="api_service_control">服务控制</string>
+    <string name="api_service_status">服务状态</string>
+    <string name="api_service_status_running">运行中</string>
+    <string name="api_service_stopped">已停止</string>
+    <string name="api_service_start">启动</string>
+    <string name="api_service_restart">重启</string>
+    <string name="api_service_started">API 服务已启动</string>
+    <string name="api_service_stopped_msg">API 服务已停止</string>
+    <string name="api_service_restarted">API 服务已重启</string>
     <string name="api_console_title">API服务控制台</string>
     <string name="api_port">端口</string>
     <string name="api_bind_ip">绑定IP地址</string>

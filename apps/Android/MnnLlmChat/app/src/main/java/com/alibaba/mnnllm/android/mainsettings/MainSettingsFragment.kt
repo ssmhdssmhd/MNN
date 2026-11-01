@@ -26,6 +26,7 @@ import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
+import com.alibaba.mnnllm.android.utils.GithubUtils
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
@@ -99,6 +100,7 @@ class MainSettingsFragment : Fragment() {
         setupApiEntries()
         setupApiModelSelection()
         setupUpdateAndVersion()
+        setupAboutSection()
         setupDebugMode(sharedPreferences)
     }
 
@@ -330,6 +332,63 @@ class MainSettingsFragment : Fragment() {
         } catch (_: Exception) {
             binding.tvMnnVersion.text = "N/A"
         }
+    }
+
+    private fun setupAboutSection() {
+        binding.btnDeveloperInfo.setOnClickListener {
+            showDeveloperInfoDialog()
+        }
+        binding.btnAnnouncement.setOnClickListener {
+            showAnnouncementDialog()
+        }
+    }
+
+    private fun showDeveloperInfoDialog() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.developer_info_title)
+            .setMessage(getString(R.string.developer_info_content).replace("\\n", "\n"))
+            .setPositiveButton(R.string.visit_repo) { _, _ ->
+                GithubUtils.starProject(requireContext())
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    private fun showAnnouncementDialog() {
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.announcement_title)
+            .setMessage(R.string.announcement_loading)
+            .setNegativeButton(R.string.close, null)
+            .create()
+        dialog.show()
+
+        lifecycleScope.launch {
+            val content = withContext(Dispatchers.IO) { loadAnnouncementContent() }
+            if (isAdded) {
+                dialog.setMessage(content)
+            }
+        }
+    }
+
+    /**
+     * Load announcement content from the GitHub repository's KZ/gonggao.txt,
+     * falling back to the bundled asset when network is unavailable.
+     */
+    private fun loadAnnouncementContent(): String {
+        val remoteUrl = "https://raw.githubusercontent.com/ssmhdssmhd/MNN/main/KZ/gonggao.txt"
+        return runCatching {
+            val url = java.net.URL(remoteUrl)
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.requestMethod = "GET"
+            conn.connect()
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
+            if (text.isNotBlank()) text else null
+        }.getOrNull() ?: runCatching {
+            requireContext().assets.open("gonggao.txt").bufferedReader().use { it.readText() }
+        }.getOrDefault(getString(R.string.announcement_failed))
     }
 
     private fun setupDebugMode(

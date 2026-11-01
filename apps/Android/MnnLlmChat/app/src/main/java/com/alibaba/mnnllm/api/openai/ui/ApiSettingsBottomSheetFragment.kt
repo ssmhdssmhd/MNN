@@ -21,7 +21,10 @@ import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.net.NetworkInterface
 import java.util.*
@@ -69,7 +72,62 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         setupNetworkSettings()
         setupCorsSettings()
         setupAuthSettings()
+        setupServiceControl()
         setupActionButtons()
+    }
+
+    private fun refreshServiceStatus() {
+        val running = ApiServiceManager.isApiServiceRunning()
+        binding.tvServiceStatus.text = getString(
+            if (running) R.string.api_service_status_running else R.string.api_service_stopped
+        )
+        binding.btnServiceStart.isEnabled = !running
+        binding.btnServiceStop.isEnabled = running
+        binding.btnServiceRestart.isEnabled = running
+    }
+
+    private fun setupServiceControl() {
+        refreshServiceStatus()
+
+        binding.btnServiceStart.setOnClickListener {
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    ApiServiceManager.startApiService(requireContext())
+                }
+                delay(300)
+                refreshServiceStatus()
+                val running = ApiServiceManager.isApiServiceRunning()
+                Toast.makeText(
+                    requireContext(),
+                    if (running) R.string.api_service_started else R.string.api_service_start_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        binding.btnServiceStop.setOnClickListener {
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    ApiServiceManager.stopApiService(requireContext())
+                }
+                delay(300)
+                refreshServiceStatus()
+                Toast.makeText(requireContext(), R.string.api_service_stopped_msg, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnServiceRestart.setOnClickListener {
+            lifecycleScope.launch {
+                withContext(Dispatchers.IO) {
+                    ApiServiceManager.stopApiService(requireContext())
+                    delay(500)
+                    ApiServiceManager.startApiService(requireContext())
+                }
+                delay(300)
+                refreshServiceStatus()
+                Toast.makeText(requireContext(), R.string.api_service_restarted, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun loadSettings() {
@@ -285,6 +343,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                     Timber.d("ApiService is disabled, service stopped after resetting to defaults.")
                 }
                 loadSettings() //Update UI in coroutine, ensure execution after service operations
+                refreshServiceStatus()
             }
         } else {
             //If service is not running
@@ -295,6 +354,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 ApiServiceManager.startApiService(context)
             }
             loadSettings() //Update UI
+            refreshServiceStatus()
         }
     }
 

@@ -202,6 +202,24 @@
     <string name="api_model_selection_dialog_title">Select Models for API</string>
     <string name="api_no_local_models">No local models available</string>
     <string name="api_model_selection_count">%d model(s) selected</string>
+    <string name="api_service_control">Service Control</string>
+    <string name="api_service_status">Service Status</string>
+    <string name="api_service_status_running">Running</string>
+    <string name="api_service_stopped">Stopped</string>
+    <string name="api_service_start">Start</string>
+    <string name="api_service_restart">Restart</string>
+    <string name="api_service_started">API service started</string>
+    <string name="api_service_stopped_msg">API service stopped</string>
+    <string name="api_service_restarted">API service restarted</string>
+
+    <string name="developer_info">Developer Info</string>
+    <string name="announcement">Announcement</string>
+    <string name="announcement_title">Announcement</string>
+    <string name="announcement_loading">Loading announcement...</string>
+    <string name="announcement_failed">Failed to load announcement</string>
+    <string name="developer_info_title">Developer Info</string>
+    <string name="developer_info_content">Developer: ssmhdssmhd\nGitHub: https://github.com/ssmhdssmhd/MNN\nRepo: MNN (Alibaba MNN fork)\n\nThis app is based on Alibaba MNN framework.\nFor feedback and issues, please visit the GitHub repository.</string>
+    <string name="visit_repo">Visit Repository</string>
     
     <string name="api_console_title">API Service Console</string>
     
