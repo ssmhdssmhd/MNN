@@ -484,6 +484,8 @@ class MainActivity : AppCompatActivity(), MainFragmentManager.FragmentLifecycleL
     override fun onResume() {
         super.onResume()
         ensureHistoryFragmentInitialized()
+        // 从「安装未知应用」授权页返回后继续安装
+        updateChecker?.checkForUpdates(this, false)
     }
 
     override fun onDestroy() {

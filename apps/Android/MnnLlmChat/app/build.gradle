@@ -56,6 +56,16 @@ if (project.hasProperty('ADD_BUILTIN') && project.property('ADD_BUILTIN') == 'tr
     preBuild.dependsOn downloadAndUnzipBuiltinModels, copyModelInfoToMarketConfig
 }
 
+def versionFile = new File(rootProject.rootDir, "../../../VERSION")
+def fileVersion = versionFile.exists() ? versionFile.text.trim() : null
+def appVersion = (project.findProperty("appVersion")
+        ?: System.getenv("APP_VERSION")
+        ?: fileVersion
+        ?: "0.0.4").toString()
+def appVersionParts = appVersion.split("\\.").collect { it.toInteger() }
+// 以 830 为基线，保证版本码始终高于历史 0.8.3(830)，同时随 0.0.x 单调递增
+def appVersionCode = 830 + appVersionParts[0] * 10000 + appVersionParts[1] * 100 + appVersionParts[2]
+
 android {
     namespace 'com.alibaba.mnnllm.android'
     compileSdk 35
@@ -69,8 +79,9 @@ android {
         applicationId "com.alibaba.mnnllm.android"
         minSdk 26
         targetSdk 35
-        versionCode 830
-        versionName "0.8.3"
+        versionCode appVersionCode
+        versionName appVersion
+        buildConfigField "String", "APP_RELEASE_VERSION", "\"${appVersion}\""
         buildConfigField "boolean", "ENABLE_FIREBASE", enableFirebase ? "true" : "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {

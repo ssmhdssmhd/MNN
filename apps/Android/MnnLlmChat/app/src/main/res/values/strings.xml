@@ -118,6 +118,17 @@
     <string name="settings">Settings</string>
     <string name="current_version">Current Version:%1$s</string>
     <string name="current_version_check_update">Current Version:%1$s (Tap to check updates)</string>
+    <string name="update_prompt_message">A new version %1$s (%2$s) is available. Update now? The download supports resume.</string>
+    <string name="update_now">Update now</string>
+    <string name="update_later">Later</string>
+    <string name="update_resume">Resume download</string>
+    <string name="update_downloading">Downloading update</string>
+    <string name="update_downloading_version">Downloading version %1$s</string>
+    <string name="update_pause">Pause</string>
+    <string name="update_paused">Download paused. Progress is saved and will resume next time.</string>
+    <string name="update_download_failed">Update download failed: %1$s</string>
+    <string name="update_verify_failed">The downloaded package is invalid. Please retry.</string>
+    <string name="update_download_finished">Download complete. Opening the installer…</string>
     <string name="mnn_version">MNN Engine Version</string>
     <string name="select_download_provider">Select Download Provider</string>
     <string name="settings_complete">it\'s recommended to remove unfinished tasks and redownload to prevent errors.</string>

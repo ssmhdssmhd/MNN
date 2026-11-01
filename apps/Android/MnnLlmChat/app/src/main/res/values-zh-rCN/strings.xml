@@ -110,6 +110,17 @@
     <string name="copy_config">复制配置</string>
     <string name="current_version">当前版本:%1$s</string>
     <string name="current_version_check_update">当前版本:%1$s（点击检查更新）</string>
+    <string name="update_prompt_message">发现新版本 %1$s（%2$s），是否立即更新？下载支持断点续传。</string>
+    <string name="update_now">立即更新</string>
+    <string name="update_later">稍后再说</string>
+    <string name="update_resume">继续下载</string>
+    <string name="update_downloading">正在下载更新</string>
+    <string name="update_downloading_version">正在下载版本 %1$s</string>
+    <string name="update_pause">暂停</string>
+    <string name="update_paused">下载已暂停，进度已保留，下次可继续。</string>
+    <string name="update_download_failed">更新下载失败：%1$s</string>
+    <string name="update_verify_failed">安装包校验失败，请重试。</string>
+    <string name="update_download_finished">下载完成，正在打开安装程序…</string>
     <string name="mnn_version">MNN引擎版本</string>
     <string name="select_download_provider">选择下载提供商</string>
     <string name="settings_complete">强烈建议删除未完成任务重新下载，否则可能有数据不一致问题。</string>

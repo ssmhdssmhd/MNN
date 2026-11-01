@@ -3,82 +3,76 @@
 package com.alibaba.mnnllm.android.update
 
 import android.annotation.SuppressLint
-import android.app.Activity
-import android.app.DownloadManager
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.TextUtils
 import android.util.Log
+import android.view.LayoutInflater
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.alibaba.mnnllm.android.BuildConfig
 import com.alibaba.mnnllm.android.R
-import com.alibaba.mnnllm.android.chat.DownloadReceiver
 import com.alibaba.mnnllm.android.utils.AppUtils.getAppVersionName
-import com.alibaba.mnnllm.android.utils.DeviceUtils
 import com.alibaba.mnnllm.android.utils.PreferenceUtils
 import com.alibaba.mnnllm.android.utils.UiUtils
-import android.app.Dialog
-import android.view.LayoutInflater
-import android.widget.TextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Request.Builder
 import okhttp3.Response
-import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URL
+import java.util.Locale
 import java.util.concurrent.TimeUnit
-import kotlin.math.max
 
-
+/**
+ * 从 GitHub Release 检测新版本，用户同意后带断点续传地下载 APK 并拉起安装。
+ */
 class UpdateChecker(private val context: Context) {
 
-    private var manifestUrl = "https://modelscope.cn/datasets/MNN/mnn_llm_app_config/resolve/master/main_config.json"
     private var progressDialog: Dialog? = null
-    
-    private fun createMaterial3ProgressDialog(context: Context, message: String): Dialog {
-        // Create a custom layout for the progress dialog
-        val inflater = LayoutInflater.from(context)
-        val view = inflater.inflate(R.layout.dialog_progress_material3, null)
-        
-        val progressIndicator = view.findViewById<CircularProgressIndicator>(R.id.progress_indicator)
-        val progressText = view.findViewById<TextView>(R.id.progress_text)
-        
-        // Set progress indicator to indeterminate mode for this simple dialog
-        progressIndicator.isIndeterminate = true
-        progressText.text = message
-        
-        val dialog = MaterialAlertDialogBuilder(context)
-            .setView(view)
-            .setCancelable(false)
-            .create()
-        
-        dialog.show()
-        
-        return dialog
+    private var downloadDialog: Dialog? = null
+    private var downloadProgressBar: ProgressBar? = null
+    private var downloadProgressText: TextView? = null
+
+    private var activeCall: Call? = null
+    private var downloadThread: Thread? = null
+
+    @Volatile
+    private var downloadPaused = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
     }
 
-    init {
-        if (File("/data/local/tmp/mnn_chat_test").exists()) {
-            manifestUrl = manifestUrl.replace("/MNN/", "/JuudeS/")
-        }
-    }
+    private data class UpdateInfo(
+        val version: String,
+        val downloadUrl: String,
+        val size: Long,
+        val timestamp: Long,
+        val notes: String
+    )
 
     @SuppressLint("LogNotTimber")
     fun checkForUpdates(context: Context, forceCheck: Boolean) {
@@ -86,7 +80,7 @@ class UpdateChecker(private val context: Context) {
         if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
             return
         }
-        
+
         if (waitingForInstallPermission && (waitingDownloadId > 0 || waitingFileUri != null)) {
             installApk(context, waitingDownloadId, waitingFileUri)
             waitingForInstallPermission = false
@@ -94,203 +88,410 @@ class UpdateChecker(private val context: Context) {
         }
         if (!forceCheck) {
             val lastCheckTime = PreferenceUtils.getLong(context, "download_last_show_time", 0)
-            if (System.currentTimeMillis() - lastCheckTime < 1000 * 60 * 60) {
+            if (System.currentTimeMillis() - lastCheckTime < CHECK_INTERVAL_MS) {
                 return
             }
         }
+        PreferenceUtils.setLong(context, "download_last_show_time", System.currentTimeMillis())
         if (forceCheck) {
             progressDialog = createMaterial3ProgressDialog(context, context.getString(R.string.checking_repo_updates))
         }
-        val loggingInterceptor = Interceptor { chain ->
-            val request: Request = chain.request()
-            Log.d(TAG, "Request: ${request.method} ${request.url}")
-            Log.d(TAG, "Request headers: ${request.headers}")
-            val response: Response = chain.proceed(request)
-            Log.d(TAG, "Response: ${response.code} ${response.message}")
-            Log.d(TAG, "Response headers: ${response.headers}")
-            response
-        }
-        val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .addInterceptor(loggingInterceptor)
-            .build()
-        Log.d(TAG, "checkForUpdates: $manifestUrl")
-        val request: Request = Builder()
-            .url(manifestUrl)
+
+        val request = Request.Builder()
+            .url(RELEASE_API_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", USER_AGENT)
             .build()
 
-        client.newCall(request).enqueue(object : Callback {
+        httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.e(TAG, "Network request failed", e)
-                Log.e(TAG, "Request URL: ${call.request().url}")
-                Log.e(TAG, "Exception type: ${e.javaClass.simpleName}")
-                Log.e(TAG, "Exception message: ${e.message}")
-                
-                if (forceCheck) {
+                Log.e(TAG, "check update failed: ${e.message}")
+                mainHandler.post {
                     progressDialog?.dismiss()
-                    UiUtils.showToast(
-                        context,
-                        context.getString(R.string.get_update_info_failed),
-                        Toast.LENGTH_SHORT
-                    )
+                    progressDialog = null
+                    if (forceCheck) {
+                        UiUtils.showToast(context, context.getString(R.string.get_update_info_failed), Toast.LENGTH_SHORT)
+                    }
                 }
             }
 
-            @Throws(IOException::class)
             override fun onResponse(call: Call, response: Response) {
-                Log.d(TAG, "Response received - Code: ${response.code}, Message: ${response.message}")
-                Log.d(TAG, "Response URL: ${response.request.url}")
-                
+                val body = try {
+                    response.body?.string().orEmpty()
+                } catch (e: IOException) {
+                    ""
+                }
+                Log.d(TAG, "release response: ${response.code}")
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "HTTP error: ${response.code} - ${response.message}")
-                    Log.e(TAG, "Response body: ${response.body?.string()}")
-                    if (forceCheck) {
+                    mainHandler.post {
                         progressDialog?.dismiss()
-                        UiUtils.showToast(
-                            context,
-                            context.getString(R.string.get_update_info_failed),
-                            Toast.LENGTH_SHORT
-                        )
+                        progressDialog = null
+                        if (forceCheck) {
+                            UiUtils.showToast(context, context.getString(R.string.get_update_info_failed), Toast.LENGTH_SHORT)
+                        }
                     }
                     return
                 }
-                val responseData = response.body!!.string()
-                Log.d(TAG, "responde data: $responseData")
-                try {
-                    val jsonObject = JSONObject(responseData)
-                    val latestVersion = jsonObject.getString("latest_version")
-                    val updateMessage = jsonObject.getString("update_message")
-                    val updateMessageZh = jsonObject.getString("update_message_zh")
-                    val downloadUrl = jsonObject.getString("download_url")
-
-                    val currentVersion = getAppVersionName(context)
-                    Log.d(
-                        TAG,
-                        "currentVersion : $currentVersion"
-                    )
+                val info = try {
+                    parseLatestRelease(body)
+                } catch (e: Exception) {
+                    Log.e(TAG, "parse release failed", e)
+                    null
+                }
+                mainHandler.post {
                     progressDialog?.dismiss()
-                    if (isNewerVersion(latestVersion, currentVersion)) {
-                        Handler(Looper.getMainLooper()).post {
-                            showUpdateDialog(
-                                context,
-                                latestVersion,
-                                updateMessage,
-                                updateMessageZh,
-                                downloadUrl
-                            )
+                    progressDialog = null
+                    if (info == null) {
+                        if (forceCheck) {
+                            UiUtils.showToast(context, context.getString(R.string.get_update_info_failed), Toast.LENGTH_SHORT)
                         }
-                    } else if (forceCheck) {
-                        UiUtils.showToast(
-                            context,
-                            context.getString(R.string.no_update),
-                            Toast.LENGTH_SHORT
-                        )
+                        return@post
                     }
-                } catch (e: JSONException) {
-                    Log.e(TAG, "check version error", e)
+                    if (isNewerVersion(info.version, currentReleaseVersion(context))) {
+                        showUpdateDialog(context, info)
+                    } else if (forceCheck) {
+                        UiUtils.showToast(context, context.getString(R.string.no_update), Toast.LENGTH_SHORT)
+                    }
                 }
             }
         })
     }
 
-    private fun isNewerVersion(latest: String, current: String): Boolean {
-        val latestParts =
-            latest.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        val currentParts =
-            current.split("\\.".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-        val length =
-            max(latestParts.size.toDouble(), currentParts.size.toDouble()).toInt()
-        for (i in 0 until length) {
-            val latestNum = if (i < latestParts.size) latestParts[i].toInt() else 0
-            val currentNum = if (i < currentParts.size) currentParts[i].toInt() else 0
-            if (latestNum > currentNum) {
-                return true
-            } else if (latestNum < currentNum) {
-                return false
-            }
-        }
-        return false
+    /** 读取构建时注入的发布版本号，便于与 GitHub Release 资产版本保持一致。 */
+    private fun currentReleaseVersion(context: Context): String {
+        val releaseVersion = BuildConfig.APP_RELEASE_VERSION
+        return if (releaseVersion.isNotBlank()) releaseVersion else getAppVersionName(context)
     }
 
-    private fun showUpdateDialog(
-        context: Context, latestVersion: String, updateMessage: String,
-        updateMessageZh: String, downloadUrl: String
-    ) {
-        PreferenceUtils.setLong(context, "download_last_show_time", System.currentTimeMillis())
-        MaterialAlertDialogBuilder(context)
-            .setTitle(context.getString(R.string.download_update_available, latestVersion))
-            .setMessage(if (DeviceUtils.isChinese && !TextUtils.isEmpty(updateMessageZh)) updateMessageZh else updateMessage)
-            .setPositiveButton(R.string.download) { dialog, _ ->
-                dialog.dismiss()
-                downloadApk(context, downloadUrl)
+    private fun parseLatestRelease(json: String): UpdateInfo? {
+        val root = JSONObject(json)
+        val notes = root.optString("body")
+        val assets = root.optJSONArray("assets") ?: return null
+        var best: UpdateInfo? = null
+        for (i in 0 until assets.length()) {
+            val asset = assets.getJSONObject(i)
+            val name = asset.optString("name")
+            val match = ASSET_PATTERN.matchEntire(name) ?: continue
+            val version = match.groupValues[1]
+            val timestamp = match.groupValues[2].toLongOrNull() ?: 0L
+            val current = best
+            if (current == null ||
+                compareVersion(version, current.version) > 0 ||
+                (compareVersion(version, current.version) == 0 && timestamp > current.timestamp)
+            ) {
+                best = UpdateInfo(
+                    version = version,
+                    downloadUrl = asset.optString("browser_download_url"),
+                    size = asset.optLong("size", 0L),
+                    timestamp = timestamp,
+                    notes = notes
+                )
             }
-            .setCancelable(false)
-            .setNegativeButton(
-                android.R.string.cancel
-            ) { dialog, _ -> dialog.dismiss() }
+        }
+        return best
+    }
+
+    private fun isNewerVersion(latest: String, current: String): Boolean {
+        return compareVersion(latest, current) > 0
+    }
+
+    private fun compareVersion(left: String, right: String): Int {
+        val leftParts = left.split(".")
+        val rightParts = right.split(".")
+        val length = maxOf(leftParts.size, rightParts.size)
+        for (i in 0 until length) {
+            val l = leftParts.getOrNull(i)?.toIntOrNull() ?: 0
+            val r = rightParts.getOrNull(i)?.toIntOrNull() ?: 0
+            if (l != r) {
+                return if (l > r) 1 else -1
+            }
+        }
+        return 0
+    }
+
+    private fun showUpdateDialog(context: Context, info: UpdateInfo) {
+        PreferenceUtils.setLong(context, "download_last_show_time", System.currentTimeMillis())
+        val partFile = File(updateDir(context), partName(info))
+        val message = buildString {
+            append(context.getString(R.string.update_prompt_message, info.version, formatSize(info.size)))
+            val notes = cleanNotes(info.notes)
+            if (notes.isNotEmpty()) {
+                append("\n\n")
+                append(notes)
+            }
+        }
+        MaterialAlertDialogBuilder(context)
+            .setTitle(context.getString(R.string.download_update_available, info.version))
+            .setMessage(message)
+            .setPositiveButton(if (partFile.exists()) R.string.update_resume else R.string.update_now) { dialog, _ ->
+                dialog.dismiss()
+                startDownload(context, info)
+            }
+            .setNegativeButton(R.string.update_later, null)
             .show()
     }
 
-    private fun downloadApk(context: Context, downloadUrl: String) {
-        // Do nothing in Google Play build
-        if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
-            return
+    private fun cleanNotes(notes: String): String {
+        if (TextUtils.isEmpty(notes)) {
+            return ""
         }
-        
-        val apkName = getUrlLastName(downloadUrl)?: "update.apk"
-        val downloadPath = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        val file = File(downloadPath, apkName)
-        var downloadFileUri = Uri.fromFile(file)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val authority = "${context.packageName}.fileprovider"
-            downloadFileUri = FileProvider.getUriForFile(context, authority, file)
-        }
-        if (file.exists()) {
-            installApk(context, -9999, downloadFileUri)
-            return
-        }
-        UiUtils.showToast(context, context.getString(R.string.apk_download_started), Toast.LENGTH_LONG)
-        val request = DownloadManager.Request(Uri.parse(downloadUrl))
-            .setTitle(apkName)
-            .setDescription(context.getString(R.string.wait_install_apk))
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationUri(Uri.fromFile(file))
-            .setMimeType("application/vnd.android.package-archive")
-        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        downloadManager.enqueue(request)
+        val trimmed = notes.replace("\r", "").trim()
+        return if (trimmed.length > MAX_NOTES_LENGTH) trimmed.substring(0, MAX_NOTES_LENGTH) + "…" else trimmed
     }
 
-    private val versionName: String?
-        get() {
-            try {
-                val packageName = context.applicationContext.packageName
-                return context.applicationContext.packageManager
-                    .getPackageInfo(packageName, 0).versionName
-            } catch (e: PackageManager.NameNotFoundException) {
-                return "99.99"
-            }
+    private fun startDownload(context: Context, info: UpdateInfo) {
+        if (downloadThread?.isAlive == true) {
+            UiUtils.showToast(context, context.getString(R.string.update_downloading), Toast.LENGTH_SHORT)
+            return
         }
+        downloadPaused = false
+        val appContext = context.applicationContext
+        val dir = updateDir(appContext)
+        val partFile = File(dir, partName(info))
+        val targetFile = File(dir, partFile.name.removeSuffix(PART_SUFFIX))
+        if (targetFile.exists() && isValidApk(appContext, targetFile)) {
+            installApk(appContext, -1, uriFor(appContext, targetFile))
+            return
+        }
+        showDownloadProgress(context, info)
+
+        val thread = Thread {
+            try {
+                downloadApkFile(info, partFile, targetFile) { downloaded, total ->
+                    mainHandler.post { updateDownloadProgress(downloaded, total) }
+                }
+                mainHandler.post {
+                    dismissDownloadProgress()
+                    if (!isValidApk(appContext, targetFile)) {
+                        targetFile.delete()
+                        UiUtils.showToast(appContext, appContext.getString(R.string.update_verify_failed), Toast.LENGTH_LONG)
+                        return@post
+                    }
+                    UiUtils.showToast(appContext, appContext.getString(R.string.update_download_finished), Toast.LENGTH_SHORT)
+                    installApk(appContext, -1, uriFor(appContext, targetFile))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "download update failed", e)
+                mainHandler.post {
+                    dismissDownloadProgress()
+                    if (!downloadPaused) {
+                        val reason = e.message ?: e.javaClass.simpleName
+                        UiUtils.showToast(
+                            appContext,
+                            appContext.getString(R.string.update_download_failed, reason),
+                            Toast.LENGTH_LONG
+                        )
+                    }
+                }
+            } finally {
+                activeCall = null
+            }
+        }.also { downloadThread = it }
+        thread.start()
+    }
+
+    private fun showDownloadProgress(context: Context, info: UpdateInfo) {
+        val view = LayoutInflater.from(context).inflate(R.layout.dialog_update_progress, null)
+        downloadProgressBar = view.findViewById(R.id.update_progress_bar)
+        downloadProgressText = view.findViewById(R.id.update_progress_text)
+        view.findViewById<TextView>(R.id.update_message).text =
+            context.getString(R.string.update_downloading_version, info.version)
+
+        downloadDialog = MaterialAlertDialogBuilder(context)
+            .setTitle(R.string.update_downloading)
+            .setView(view)
+            .setNegativeButton(R.string.update_pause) { dialog, _ ->
+                pauseDownload(context)
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
+    }
+
+    private fun dismissDownloadProgress() {
+        downloadDialog?.dismiss()
+        downloadDialog = null
+        downloadProgressBar = null
+        downloadProgressText = null
+    }
+
+    @SuppressLint("SetTextI18n")
+    private fun updateDownloadProgress(downloaded: Long, total: Long) {
+        val percent = if (total > 0) ((downloaded * 100) / total).toInt().coerceIn(0, 100) else 0
+        downloadProgressBar?.progress = percent
+        downloadProgressText?.text = if (total > 0) {
+            String.format(Locale.getDefault(), "%d%%  %s / %s", percent, formatSize(downloaded), formatSize(total))
+        } else {
+            formatSize(downloaded)
+        }
+    }
+
+    private fun pauseDownload(context: Context) {
+        downloadPaused = true
+        activeCall?.cancel()
+        UiUtils.showToast(context, context.getString(R.string.update_paused), Toast.LENGTH_LONG)
+    }
+
+    private fun downloadApkFile(
+        info: UpdateInfo,
+        partFile: File,
+        targetFile: File,
+        onProgress: (Long, Long) -> Unit
+    ) {
+        val existingLength = if (partFile.exists()) partFile.length() else 0L
+        val requestBuilder = Request.Builder()
+            .url(info.downloadUrl)
+            .header("User-Agent", USER_AGENT)
+        if (existingLength > 0) {
+            requestBuilder.header("Range", "bytes=$existingLength-")
+        }
+        val call = httpClient.newCall(requestBuilder.build())
+        activeCall = call
+
+        call.execute().use { response ->
+            if (response.code == 416 && existingLength > 0) {
+                // 本地文件恰好已完整，直接完成
+                finishDownload(partFile, targetFile)
+                return
+            }
+            if (!response.isSuccessful) {
+                throw IOException("HTTP ${response.code}")
+            }
+            val body = response.body ?: throw IOException("empty response body")
+
+            val append = response.code == 206 && existingLength > 0
+            if (existingLength > 0 && !append) {
+                // 服务端不支持 Range，从头开始覆盖
+                partFile.delete()
+            }
+            var total = info.size
+            val contentRange = response.header("Content-Range")
+            if (!contentRange.isNullOrBlank()) {
+                val rangeTotal = contentRange.substringAfterLast('/', "").toLongOrNull()
+                if (rangeTotal != null && rangeTotal > 0) {
+                    total = rangeTotal
+                }
+            } else {
+                total = response.body?.contentLength()?.takeIf { it > 0 }?.let {
+                    it + (if (append) existingLength else 0L)
+                } ?: info.size
+            }
+
+            var written = if (append) existingLength else 0L
+            val buffer = ByteArray(BUFFER_SIZE)
+            var lastReported = -1L
+            FileOutputStream(partFile, append).use { output ->
+                body.byteStream().use { input ->
+                    while (true) {
+                        if (downloadPaused) {
+                            throw IOException("paused")
+                        }
+                        val read = input.read(buffer)
+                        if (read == -1) {
+                            break
+                        }
+                        output.write(buffer, 0, read)
+                        written += read
+                        if (written - lastReported >= PROGRESS_STEP || (total > 0 && written >= total)) {
+                            lastReported = written
+                            onProgress(written, total)
+                        }
+                    }
+                }
+            }
+            onProgress(written, total)
+            if (total > 0 && written != total) {
+                throw IOException("incomplete download $written/$total")
+            }
+            finishDownload(partFile, targetFile)
+        }
+    }
+
+    private fun finishDownload(partFile: File, targetFile: File) {
+        if (targetFile.exists() && !targetFile.delete()) {
+            throw IOException("cannot replace target file")
+        }
+        if (!partFile.renameTo(targetFile)) {
+            throw IOException("cannot rename part file")
+        }
+    }
+
+    private fun isValidApk(context: Context, file: File): Boolean {
+        if (!file.exists() || file.length() <= 0) {
+            return false
+        }
+        val archive = context.packageManager.getPackageArchiveInfo(file.absolutePath, 0) ?: return false
+        return archive.packageName == context.packageName
+    }
+
+    private fun updateDir(context: Context): File {
+        val root = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        return File(root, "updates").apply { mkdirs() }
+    }
+
+    private fun partName(info: UpdateInfo): String {
+        return "MNN.Chat.${info.version}.${info.timestamp}.apk$PART_SUFFIX"
+    }
+
+    private fun uriFor(context: Context, file: File): Uri {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } else {
+            Uri.fromFile(file)
+        }
+    }
+
+    private fun formatSize(bytes: Long): String {
+        if (bytes <= 0) {
+            return "0 B"
+        }
+        val kb = bytes / 1024.0
+        if (kb < 1024) {
+            return String.format(Locale.getDefault(), "%.0f KB", kb)
+        }
+        val mb = kb / 1024.0
+        return String.format(Locale.getDefault(), "%.1f MB", mb)
+    }
+
+    private fun createMaterial3ProgressDialog(context: Context, message: String): Dialog {
+        val inflater = LayoutInflater.from(context)
+        val view = inflater.inflate(R.layout.dialog_progress_material3, null)
+
+        val progressIndicator = view.findViewById<CircularProgressIndicator>(R.id.progress_indicator)
+        val progressText = view.findViewById<TextView>(R.id.progress_text)
+
+        progressIndicator.isIndeterminate = true
+        progressText.text = message
+
+        return MaterialAlertDialogBuilder(context)
+            .setView(view)
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
+    }
 
     companion object {
-        private var waitingDownloadId: Long = -9999
         private const val TAG = "UpdateChecker"
+        private const val RELEASE_API_URL = "https://api.github.com/repos/ssmhdssmhd/MNN/releases/tags/latest"
+        private const val USER_AGENT = "MoXi-Local-AI-Updater"
+        private const val CHECK_INTERVAL_MS = 60 * 60 * 1000L
+        private const val MAX_NOTES_LENGTH = 400
+        private const val BUFFER_SIZE = 64 * 1024
+        private const val PROGRESS_STEP = 256 * 1024L
+        private const val PART_SUFFIX = ".part"
+        private val ASSET_PATTERN = Regex("^MNN\\.Chat\\.(\\d+\\.\\d+\\.\\d+)\\.(\\d{12})\\.apk$")
+
+        private var waitingDownloadId: Long = -9999
         var waitingForInstallPermission = false
         private var waitingFileUri: Uri? = null
+
         fun getUrlLastName(urlStr: String?): String? {
             try {
                 val url = URL(urlStr)
                 val path = url.path
-                val pathSegments =
-                    path.split("/".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
-                var lastName = ""
-                for (segment in pathSegments) {
-                    if (!segment.isEmpty()) {
-                        lastName = segment
-                    }
-                }
-                return lastName
+                val pathSegments = path.split("/").filter { it.isNotEmpty() }
+                return pathSegments.lastOrNull()
             } catch (e: Exception) {
                 return null
             }
@@ -301,7 +502,7 @@ class UpdateChecker(private val context: Context) {
             if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
                 return
             }
-            
+
             if (!context.packageManager.canRequestPackageInstalls()) {
                 waitingForInstallPermission = true
                 waitingDownloadId = downloadId
@@ -313,11 +514,11 @@ class UpdateChecker(private val context: Context) {
                 context.startActivity(intent)
                 return
             }
-            Log.d(TAG, "installAPK:$fileUri downloadId: $downloadId" )
-            val downloadManager =
-                context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            val uri = fileUri?:downloadManager.getUriForDownloadedFile(downloadId)
-            Log.d(TAG, "installAPK:$downloadId uri : $uri")
+            Log.d(TAG, "installAPK: downloadId=$downloadId uri=$fileUri")
+            val uri = fileUri ?: run {
+                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                downloadManager.getUriForDownloadedFile(downloadId)
+            }
             if (uri == null) {
                 return
             }
@@ -332,15 +533,7 @@ class UpdateChecker(private val context: Context) {
             if (BuildConfig.IS_GOOGLE_PLAY_BUILD) {
                 return
             }
-            
-            val downloadCompletedReceiver = DownloadReceiver()
-            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(downloadCompletedReceiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                context.registerReceiver(downloadCompletedReceiver, filter)
-            }
+            // 保留系统 DownloadManager 兼容入口，更新流程已改为应用内断点续传下载
         }
-
     }
 }
