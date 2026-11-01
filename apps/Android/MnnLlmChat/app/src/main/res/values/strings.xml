@@ -197,6 +197,11 @@
     <string name="api_settings">API Settings</string>
     <string name="api_settings_title">API Service Settings</string>
     <string name="api_console">API Console</string>
+    <string name="api_model_selection">API Model Selection</string>
+    <string name="api_model_selection_summary">Select models available via the API service</string>
+    <string name="api_model_selection_dialog_title">Select Models for API</string>
+    <string name="api_no_local_models">No local models available</string>
+    <string name="api_model_selection_count">%d model(s) selected</string></string>
     
     <string name="api_console_title">API Service Console</string>
     

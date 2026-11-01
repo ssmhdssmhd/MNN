@@ -27,12 +27,32 @@ class MNNChatService {
 
     //getdependency
     private val chatSessionProvider = ServiceLocator.getChatSessionProvider()
+    private val runtimeController = ServiceLocator.getLlmRuntimeController()
     private val imageProcessor = MnnImageProcessor.getInstance(MnnLlmApplication.getAppContext())
     
     /** * getLLMsessioninstance * @return LlmSessioninstance，if not availablethenthrowexception*/
     private fun getLlmSession(): LlmSession {
         return chatSessionProvider.getLlmSession() 
             ?: throw IllegalStateException("No active LLM session available")
+    }
+
+    /**
+     * Ensure the runtime session is loaded for the requested model.
+     * If the active session already serves this model, reuse it; otherwise
+     * release the current session and load the requested one (on-demand model switching).
+     */
+    private fun ensureModelSession(modelId: String, traceId: String) {
+        val activeModelId = runtimeController.getActiveModelId()
+        if (activeModelId == modelId && runtimeController.getActiveSession() != null) {
+            return
+        }
+        logger.logInfo(traceId, "Switching API runtime model to: $modelId")
+        val result = runtimeController.ensureSession(modelId)
+        if (!result.success || result.session == null) {
+            throw IllegalStateException(
+                "Failed to load model '$modelId': ${result.reason ?: "unknown"}"
+            )
+        }
     }
 
     /** * processchatcompleterequest * nowallrequests willbeen added toqueue,ensureaccording to orderprocess * @param call Ktorapplicationcallcontext * @param chatRequest chat request object * @param traceId traceID*/
@@ -94,6 +114,13 @@ class MNNChatService {
         traceId: String
     ) {
         try {
+            // Route to the requested model: switch the active session on demand so that
+            // multiple selected models can be served through a single API endpoint.
+            val requestedModel = chatRequest.model
+            if (!requestedModel.isNullOrBlank()) {
+                ensureModelSession(requestedModel, traceId)
+            }
+
             //willas MNNformatunifiedhistory message (containingsystem prompt)
             val unifiedHistory = messageTransformer.convertToUnifiedMnnHistory(
                 chatRequest.messages,

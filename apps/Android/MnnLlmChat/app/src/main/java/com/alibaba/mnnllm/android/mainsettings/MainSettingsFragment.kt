@@ -20,6 +20,8 @@ import com.alibaba.mnnllm.android.MnnLlmApplication
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentMainSettingsBinding
 import com.alibaba.mnnllm.android.debug.DebugActivity
+import com.alibaba.mnnllm.android.model.ModelUtils
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.modelmarket.ModelRepository
 import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
@@ -95,6 +97,7 @@ class MainSettingsFragment : Fragment() {
         setupCrashDiagnostics()
         setupResetApiConfig()
         setupApiEntries()
+        setupApiModelSelection()
         setupUpdateAndVersion()
         setupDebugMode(sharedPreferences)
     }
@@ -106,6 +109,54 @@ class MainSettingsFragment : Fragment() {
         binding.btnApiConsole.setOnClickListener {
             ApiConsoleBottomSheetFragment.newInstance(null).show(childFragmentManager, "ApiConsoleBottomSheetFragment")
         }
+    }
+
+    private fun setupApiModelSelection() {
+        updateApiModelSelectionLabel()
+        binding.btnApiModelSelection.setOnClickListener {
+            showApiModelSelectionDialog()
+        }
+    }
+
+    private fun updateApiModelSelectionLabel() {
+        val selected = MainSettings.getApiSelectedModelIds(requireContext())
+        binding.btnApiModelSelection.text = if (selected.isEmpty()) {
+            getString(R.string.api_model_selection)
+        } else {
+            getString(R.string.api_model_selection_count, selected.size)
+        }
+    }
+
+    private fun showApiModelSelectionDialog() {
+        val allModels = ModelListManager.getCurrentModels()
+            ?.filter { it.modelItem.modelId != null }
+            ?: run {
+                Toast.makeText(requireContext(), R.string.api_no_local_models, Toast.LENGTH_SHORT).show()
+                return
+            }
+
+        val modelIds = allModels.map { it.modelItem.modelId!! }
+        val modelNames = allModels.map { it.displayName.ifEmpty { ModelUtils.getModelName(it.modelItem.modelId) ?: it.modelItem.modelId!! } }
+        val selected = MainSettings.getApiSelectedModelIds(requireContext())
+        val checkedItems = BooleanArray(modelIds.size) { i -> selected.contains(modelIds[i]) }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.api_model_selection_dialog_title)
+            .setMultiChoiceItems(modelNames.toTypedArray(), checkedItems) { _, which, isChecked ->
+                checkedItems[which] = isChecked
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val newSelection = modelIds.filterIndexed { i, _ -> checkedItems[i] }.toSet()
+                MainSettings.setApiSelectedModelIds(requireContext(), newSelection)
+                updateApiModelSelectionLabel()
+                Toast.makeText(
+                    requireContext(),
+                    getString(R.string.api_model_selection_count, newSelection.size),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun setupDownloadProvider(

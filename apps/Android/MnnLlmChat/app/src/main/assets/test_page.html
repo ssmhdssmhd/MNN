@@ -273,10 +273,6 @@
         <select id="model-select" disabled>
           <option value="unknown">Loading models...</option>
         </select>
-        <button class="button button-secondary" onclick="showModelSwitchAlert()">Switch Model</button>
-      </div>
-      <div class="model-notice">
-        <small style="color: #6c757d;">⚠️ Model switching is temporarily not supported. Pleas change models in the app.</small>
       </div>
     </div>
 
@@ -318,14 +314,9 @@
       refreshModels();
     };
 
-    // 显示模型切换提醒
-    function showModelSwitchAlert() {
-      alert("Model switching is temporarily not supported.\n\nTo change models, please:\n1. Close this web page\n2. Restart the MNN Chat app\n3. Select a different model from the model list");
-    }
-
     async function refreshModels() {
       try {
-        updateStatus("Loading current model...");
+        updateStatus("Loading models...");
         const response = await fetch("/v1/models", {
           method: "GET",
           headers: {
@@ -346,16 +337,18 @@
         
         if (availableModels.length === 0) {
           modelSelect.innerHTML = '<option value="unknown">No models available</option>';
+          modelSelect.disabled = true;
           updateStatus("No models available");
         } else {
-          // 只显示第一个模型（当前使用的模型）
-          const currentModelData = availableModels[0];
-          const option = document.createElement("option");
-          option.value = currentModelData.id;
-          option.textContent = extractModelSuffix(currentModelData.id);
-          modelSelect.appendChild(option);
-          
-          currentModel = currentModelData.id;
+          availableModels.forEach((modelData) => {
+            const option = document.createElement("option");
+            option.value = modelData.id;
+            option.textContent = extractModelSuffix(modelData.id);
+            modelSelect.appendChild(option);
+          });
+          modelSelect.disabled = false;
+          // Default to the first available model
+          currentModel = availableModels[0].id;
           modelSelect.value = currentModel;
           updateStatus(`Current model: ${extractModelSuffix(currentModel)}`);
         }
@@ -365,6 +358,14 @@
         document.getElementById("model-select").innerHTML = '<option value="unknown">Error loading models</option>';
       }
     }
+
+    // Handle model selection change
+    document.addEventListener("DOMContentLoaded", function() {
+      document.getElementById("model-select").addEventListener("change", function() {
+        currentModel = this.value;
+        updateStatus(`Switched to model: ${extractModelSuffix(currentModel)}`);
+      });
+    });
 
     // 提取模型名称后缀的函数
     function extractModelSuffix(modelId) {
@@ -396,8 +397,6 @@
       
       return suffix || modelId;
     }
-
-    // Model selection change is disabled - no event listener needed
 
     function updateStatus(message) {
       document.getElementById("status").textContent = message;

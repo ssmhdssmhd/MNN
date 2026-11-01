@@ -189,6 +189,11 @@
     <string name="api_settings">API设置</string>
     <string name="api_settings_title">API服务设置</string>
     <string name="api_console">API控制台</string>
+    <string name="api_model_selection">API 模型选择</string>
+    <string name="api_model_selection_summary">选择可通过 API 服务调用的模型</string>
+    <string name="api_model_selection_dialog_title">选择 API 可用模型</string>
+    <string name="api_no_local_models">暂无本地模型</string>
+    <string name="api_model_selection_count">已选择 %d 个模型</string>
     <string name="api_console_title">API服务控制台</string>
     <string name="api_port">端口</string>
     <string name="api_bind_ip">绑定IP地址</string>

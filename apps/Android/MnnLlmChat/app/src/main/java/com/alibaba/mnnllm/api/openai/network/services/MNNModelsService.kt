@@ -6,13 +6,11 @@ import com.alibaba.mnnllm.api.openai.network.models.ModelPermission
 import com.alibaba.mnnllm.api.openai.network.models.ModelsResponse
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.android.MnnLlmApplication
+import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.api.openai.manager.CurrentModelManager
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
 import timber.log.Timber
 
 /** * MNN modelservice * responsible forprocessmodelrelatedbusinesslogic*/
@@ -22,55 +20,54 @@ class MNNModelsService {
     suspend fun getAvailableModels(call: io.ktor.server.application.ApplicationCall, traceId: String) {
         try {
             logger.logRequestStart(traceId, call)
-            
+
+            val context = MnnLlmApplication.getAppContext()
             val currentModelId = CurrentModelManager.getCurrentModelId()
-            if (currentModelId == null) {
-                Timber.tag("MNNModelsService").w("No current model ID available")
-                logger.logError(traceId, Exception("No current model ID available"), "No current model ID available")
+            val selectedIds = MainSettings.getApiSelectedModelIds(context)
+
+            // Build the list of model IDs to expose:
+            // 1. If user has explicitly selected models in Settings, use those.
+            // 2. Otherwise fall back to the currently active model.
+            val targetIds: Set<String> = if (selectedIds.isNotEmpty()) {
+                selectedIds
+            } else {
+                setOfNotNull(currentModelId)
+            }
+
+            if (targetIds.isEmpty()) {
+                Timber.tag("MNNModelsService").w("No model available for API listing")
                 call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "No current model available"))
                 return
             }
-            
+
             val availableModels = ModelListManager.getCurrentModels()
-            //onlyreturncurrentcurrentlyusemodel
-            val currentModelWrapper = availableModels?.find { 
-                it.modelItem.modelId == currentModelId 
-            }
-            
-            val modelDataList = if (currentModelWrapper != null) {
-                listOf(ModelData(
-                    id = currentModelWrapper.modelItem.modelId ?: "unknown",
-                    created = System.currentTimeMillis() / 1000, // Unix timestamp
-                    permission = listOf(
-                        ModelPermission(
-                            id = "modelperm-${currentModelWrapper.modelItem.modelId}",
-                            created = System.currentTimeMillis() / 1000
+            val modelDataList = mutableListOf<ModelData>()
+            val now = System.currentTimeMillis() / 1000
+
+            for (modelId in targetIds) {
+                val wrapper = availableModels?.find { it.modelItem.modelId == modelId }
+                val id = wrapper?.modelItem?.modelId ?: modelId
+                modelDataList.add(
+                    ModelData(
+                        id = id,
+                        created = now,
+                        permission = listOf(
+                            ModelPermission(
+                                id = "modelperm-$id",
+                                created = now
+                            )
                         )
                     )
-                ))
-            } else {
-                //ifcannot findcurrentmodel，returnonedefaultmodeldata
-                listOf(ModelData(
-                    id = currentModelId,
-                    created = System.currentTimeMillis() / 1000,
-                    permission = listOf(
-                        ModelPermission(
-                            id = "modelperm-$currentModelId",
-                            created = System.currentTimeMillis() / 1000
-                        )
-                    )
-                ))
+                )
             }
-            
+
             val response = ModelsResponse(data = modelDataList)
-            
             call.respond(response)
-            logger.logInfo(traceId, "Current model returned successfully: $currentModelId")
-            
+            logger.logInfo(traceId, "Models returned successfully: ${modelDataList.map { it.id }}")
         } catch (e: Exception) {
-            Timber.tag("MNNModelsService").e(e, "Error getting current model")
-            logger.logError(traceId, e, "Failed to get current model")
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to get current model"))
+            Timber.tag("MNNModelsService").e(e, "Error getting models")
+            logger.logError(traceId, e, "Failed to get models")
+            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Failed to get models"))
         }
     }
 }

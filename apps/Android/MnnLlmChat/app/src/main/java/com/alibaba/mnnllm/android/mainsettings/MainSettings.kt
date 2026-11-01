@@ -6,6 +6,7 @@ import android.content.Context
 import androidx.preference.PreferenceManager
 import com.alibaba.mls.api.source.ModelSources
 import com.alibaba.mnnllm.android.utils.DeviceUtils
+import org.json.JSONArray
 
 
 object MainSettings {
@@ -93,5 +94,34 @@ object MainSettings {
     fun isDefaultAsrModel(context: Context, modelId: String): Boolean {
         return getDefaultAsrModel(context) == modelId
     }
+
+    /**
+     * Get the model IDs selected for the API service (multi-model support).
+     * Returns an empty set if no selection has been made.
+     */
+    fun getApiSelectedModelIds(context: Context): Set<String> {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        val raw = sharedPreferences.getString(KEY_API_SELECTED_MODEL_IDS, null) ?: return emptySet()
+        return runCatching {
+            val arr = JSONArray(raw)
+            val set = LinkedHashSet<String>()
+            for (i in 0 until arr.length()) {
+                set.add(arr.getString(i))
+            }
+            set
+        }.getOrDefault(emptySet())
+    }
+
+    /**
+     * Save the model IDs selected for the API service.
+     */
+    fun setApiSelectedModelIds(context: Context, modelIds: Set<String>) {
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
+        val arr = JSONArray()
+        modelIds.forEach { arr.put(it) }
+        sharedPreferences.edit().putString(KEY_API_SELECTED_MODEL_IDS, arr.toString()).apply()
+    }
+
+    private const val KEY_API_SELECTED_MODEL_IDS = "api_selected_model_ids"
 
 }
