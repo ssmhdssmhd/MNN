@@ -13,7 +13,11 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class ModelFileDownloader {
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -21,6 +25,16 @@ class ModelFileDownloader {
         .followRedirects(false)
         .followSslRedirects(false) //                .addInterceptor(OkHttpUtils.createLoggingInterceptor())
         .build()
+
+    /**
+     * Per-blob-path locks so two tasks downloading the same content hash do not
+     * race on the same .incomplete / blob file. Different files download in parallel.
+     */
+    private val blobLocks = ConcurrentHashMap<String, Any>()
+
+    private fun lockFor(blobPath: File): Any {
+        return blobLocks.getOrPut(blobPath.absolutePath) { Any() }
+    }
 
     @Throws(FileDownloadException::class, DownloadPausedException::class, IOException::class)
     fun downloadFile(
@@ -47,7 +61,19 @@ class ModelFileDownloader {
             )
             return
         }
-        synchronized(this) {
+        // Synchronize on the blob path only: different files download concurrently,
+        // identical content (same etag → same blob path) is serialized to avoid corruption.
+        synchronized(lockFor(fileDownloadTask.blobPath!!)) {
+            // Re-check after acquiring the lock: another parallel task may have finished it.
+            if (fileDownloadTask.pointerPath!!.exists() || fileDownloadTask.blobPath!!.exists()) {
+                if (fileDownloadTask.blobPath!!.exists()) {
+                    createSymlink(
+                        fileDownloadTask.blobPath.toString(),
+                        fileDownloadTask.pointerPath.toString()
+                    )
+                }
+                return
+            }
             val hfFileMetadata = fileDownloadTask.fileMetadata
             downloadToTmpAndMove(
                 fileDownloadTask,
@@ -62,6 +88,49 @@ class ModelFileDownloader {
                 fileDownloadTask.pointerPath!!.toPath()
             )
         }
+    }
+
+    /**
+     * Download multiple files in parallel using a fixed thread pool.
+     * Progress is aggregated across all files via the shared [downloadedBytes] counter.
+     *
+     * @param tasks files to download
+     * @param totalSize total expected bytes (for progress reporting)
+     * @param downloadedBytes shared atomic counter of bytes downloaded so far
+     * @param listener receives per-chunk deltas; the implementation must be thread-safe
+     * @throws DownloadPausedException if the user paused the download
+     * @throws Exception if any file fails to download (after its internal retries)
+     */
+    @Throws(DownloadPausedException::class, Exception::class)
+    fun downloadFilesParallel(
+        tasks: List<FileDownloadTask>,
+        totalSize: Long,
+        downloadedBytes: AtomicLong,
+        listener: FileDownloadListener
+    ) {
+        if (tasks.isEmpty()) return
+        val pool = parallelDownloadPool
+        val latch = CountDownLatch(tasks.size)
+        var firstError: Throwable? = null
+        var paused = false
+        for (task in tasks) {
+            pool.execute {
+                try {
+                    downloadFile(task, listener)
+                } catch (e: DownloadPausedException) {
+                    paused = true
+                } catch (e: Throwable) {
+                    synchronized(this@ModelFileDownloader) {
+                        if (firstError == null) firstError = e
+                    }
+                } finally {
+                    latch.countDown()
+                }
+            }
+        }
+        latch.await()
+        if (paused) throw DownloadPausedException("Download paused")
+        firstError?.let { throw it }
     }
 
     @Throws(FileDownloadException::class, DownloadPausedException::class)
@@ -265,5 +334,16 @@ class ModelFileDownloader {
 
     companion object {
         const val TAG: String = "ModelFileDownloader"
+
+        /**
+         * Shared fixed thread pool for parallel file downloads within a model repo.
+         * 4 threads is a good balance: enough to saturate most network connections
+         * without overwhelming the server or the device's CPU.
+         */
+        private val parallelDownloadPool by lazy {
+            Executors.newFixedThreadPool(4) { r ->
+                Thread(r, "ModelFileDownloader-Parallel").apply { isDaemon = true }
+            }
+        }
     }
 }

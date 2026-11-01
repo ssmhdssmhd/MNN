@@ -248,10 +248,14 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             hfRepoInfo.sha!!
         )
         val downloadTaskList: List<FileDownloadTask>
-        val totalAndDownloadSize = LongArray(2)
+        val totalSize: Long
+        val downloadedBytes = java.util.concurrent.atomic.AtomicLong(0)
         try {
+            val totalAndDownloadSize = LongArray(2)
             downloadTaskList =
                 collectTaskList(storageFolder, parentPointerPath, hfRepoInfo, totalAndDownloadSize)
+            totalSize = totalAndDownloadSize[0]
+            downloadedBytes.set(totalAndDownloadSize[1])
         } catch (e: FileDownloadException) {
             callback?.onDownloadFailed(hfRepoInfo.modelId!!, e)
             return
@@ -260,22 +264,20 @@ class HfModelDownloader(override var callback: ModelRepoDownloadCallback?,
             object : FileDownloadListener {
                 override fun onDownloadDelta(
                     fileName: String?,
-                    downloadedBytes: Long,
+                    downloadedBytesParam: Long,
                     totalBytes: Long,
                     delta: Long
                 ): Boolean {
-                    totalAndDownloadSize[1] += delta
+                    val saved = downloadedBytes.addAndGet(delta)
                     callback?.onDownloadingProgress(
                         hfRepoInfo.modelId!!, "file", fileName,
-                        totalAndDownloadSize[1], totalAndDownloadSize[0]
+                        saved, totalSize
                     )
                     return pausedSet.contains(hfRepoInfo.modelId!!)
                 }
             }
         try {
-            for (fileDownloadTask in downloadTaskList) {
-                modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener)
-            }
+            modelDownloader.downloadFilesParallel(downloadTaskList, totalSize, downloadedBytes, fileDownloadListener)
         } catch (e: DownloadPausedException) {
             pausedSet.remove(hfRepoInfo.modelId!!)
             callback?.onDownloadPaused(hfRepoInfo.modelId!!)

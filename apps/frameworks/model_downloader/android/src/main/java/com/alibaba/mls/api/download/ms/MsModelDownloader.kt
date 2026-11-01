@@ -192,8 +192,10 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
         val storageFolder = File(this.cacheRootPath, repoFolderName)
         val parentPointerPath = getPointerPathParent(storageFolder, "_no_sha_")
         val downloadTaskList: List<FileDownloadTask>
-        val totalAndDownloadSize = LongArray(2)
+        val totalSize: Long
+        val downloadedBytes = java.util.concurrent.atomic.AtomicLong(0)
         Log.d(TAG, "downloadMsRepoInner collectMsTaskList")
+        val totalAndDownloadSize = LongArray(2)
         downloadTaskList = collectMsTaskList(
             modelScopeId,
             storageFolder,
@@ -201,27 +203,27 @@ class MsModelDownloader(override var callback: ModelRepoDownloadCallback?,
             msRepoInfo,
             totalAndDownloadSize
         )
+        totalSize = totalAndDownloadSize[0]
+        downloadedBytes.set(totalAndDownloadSize[1])
         Log.d(TAG, "downloadMsRepoInner downloadTaskList： " + downloadTaskList.size)
         val fileDownloadListener =
             object : FileDownloadListener {
                 override fun onDownloadDelta(
                     fileName: String?,
-                    downloadedBytes: Long,
+                    downloadedBytesParam: Long,
                     totalBytes: Long,
                     delta: Long
                 ): Boolean {
-                    totalAndDownloadSize[1] += delta
+                    val saved = downloadedBytes.addAndGet(delta)
                     callback?.onDownloadingProgress(
                         modelId, "file", fileName,
-                        totalAndDownloadSize[1], totalAndDownloadSize[0]
+                        saved, totalSize
                     )
                     return pausedSet.contains(modelId)
                 }
             }
         try {
-            for (fileDownloadTask in downloadTaskList) {
-                modelDownloader.downloadFile(fileDownloadTask, fileDownloadListener)
-            }
+            modelDownloader.downloadFilesParallel(downloadTaskList, totalSize, downloadedBytes, fileDownloadListener)
         } catch (e: DownloadPausedException) {
             pausedSet.remove(modelId)
             callback?.onDownloadPaused(modelId)
