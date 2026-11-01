@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import com.alibaba.mls.api.ModelItem
+import com.alibaba.mls.api.ModelStorageConfig
 import com.alibaba.mls.api.download.DownloadPersistentData
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
@@ -756,8 +757,8 @@ object ModelListManager {
                 Timber.w(e, "Failed to initialize ModelMarketCache")
             }
 
-            // Load downloaded models from .mnnmodels directory
-            val mnnModelsDir = File(context.filesDir, ".mnnmodels")
+            // Load downloaded models from configured model storage directory
+            val mnnModelsDir = ModelStorageConfig.getModelRootDir(context)
 
             if (mnnModelsDir.exists() && mnnModelsDir.isDirectory) {
                 scanModelsDirectory(mnnModelsDir, context, chatDataManager, downloadedModels)
@@ -1177,7 +1178,7 @@ object ModelListManager {
         val sb = StringBuilder()
         sb.append("=== ModelListManager Debug Scan (Dry Run) ===\n")
         try {
-            val directory = File(context.filesDir, ".mnnmodels")
+            val directory = ModelStorageConfig.getModelRootDir(context)
             sb.append("Root: ${directory.absolutePath}\n")
             
             if (!directory.exists()) {
@@ -1373,8 +1374,8 @@ object ModelListManager {
      * Create model ID from path (same logic as ModelListPresenter)
      */
     private fun createModelIdFromPath(context: Context, absolutePath: String): String? {
-        // Extract the relative path from .mnnmodels directory
-        val mnnModelsPath = File(context.filesDir, ".mnnmodels").absolutePath
+        // Extract the relative path from the configured model storage directory
+        val mnnModelsPath = ModelStorageConfig.getModelRootDir(context).absolutePath
         if (!absolutePath.startsWith(mnnModelsPath)) {
             return null
         }

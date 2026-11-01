@@ -18,14 +18,19 @@ object ApiServerConfig {
     private const val KEY_API_KEY = "api_key"
     private const val KEY_USE_HTTPS_URL = "use_https_url"
     private const val KEY_CONFIG_INITIALIZED = "config_initialized"
+    private const val KEY_CONFIG_VERSION = "config_version"
 
     //defaultconfigvalue
     private const val DEFAULT_PORT = 8080
-    private const val DEFAULT_IP_ADDRESS = "127.0.0.1"
-    private const val DEFAULT_CORS_ENABLED = false
+    // Bind all interfaces so the API is reachable from a browser on the LAN.
+    private const val DEFAULT_IP_ADDRESS = "0.0.0.0"
+    // Enable CORS by default so external web clients (OpenWebUI, LobeChat, ...) can call the API.
+    private const val DEFAULT_CORS_ENABLED = true
     private const val DEFAULT_CORS_ORIGINS = ""
     private const val DEFAULT_AUTH_ENABLED = true
     private const val DEFAULT_USE_HTTPS_URL = false
+
+    private const val CURRENT_CONFIG_VERSION = 2
 
     /** * generaterandomAPI Key * 8-digitdigitlettersymbolcomposite*/
     private fun generateRandomApiKey(): String {
@@ -45,9 +50,35 @@ object ApiServerConfig {
             saveDefaultConfig(prefs)
         } else {
             Timber.Forest.tag(TAG).i("Config already initialized, loading existing settings")
+            migrateConfigIfNeeded(prefs)
         }
 
         logCurrentConfig(context)
+    }
+
+    /**
+     * Upgrade existing configs to the current version.
+     * v1 -> v2: default bind IP moves from 127.0.0.1 to 0.0.0.0 (LAN/browser accessible),
+     *           and CORS is enabled by default so external web clients can call the API.
+     * Only values still at the old defaults are upgraded, preserving explicit user choices.
+     */
+    private fun migrateConfigIfNeeded(prefs: SharedPreferences) {
+        val version = prefs.getInt(KEY_CONFIG_VERSION, 1)
+        if (version >= CURRENT_CONFIG_VERSION) return
+
+        val editor = prefs.edit()
+        if (version < 2) {
+            val ip = prefs.getString(KEY_IP_ADDRESS, null)
+            if (ip == "127.0.0.1") {
+                editor.putString(KEY_IP_ADDRESS, DEFAULT_IP_ADDRESS)
+            }
+            if (!prefs.getBoolean(KEY_CORS_ENABLED, DEFAULT_CORS_ENABLED)) {
+                editor.putBoolean(KEY_CORS_ENABLED, DEFAULT_CORS_ENABLED)
+            }
+        }
+        editor.putInt(KEY_CONFIG_VERSION, CURRENT_CONFIG_VERSION)
+        editor.apply()
+        Timber.Forest.tag(TAG).i("Config migrated to version $CURRENT_CONFIG_VERSION")
     }
 
     /** * getserviceport*/
@@ -146,6 +177,7 @@ object ApiServerConfig {
             putString(KEY_API_KEY, defaultApiKey)
             putBoolean(KEY_USE_HTTPS_URL, DEFAULT_USE_HTTPS_URL)
             putBoolean(KEY_CONFIG_INITIALIZED, true)
+            putInt(KEY_CONFIG_VERSION, CURRENT_CONFIG_VERSION)
         }.apply()
 
         Timber.Forest.tag(TAG).i("Generated new API Key: $defaultApiKey")

@@ -300,13 +300,13 @@
   </div>
 
   <script>
-    // 从URL参数中获取token
+    // 从URL参数中获取token；若没有则使用服务端注入的API Key，保证浏览器直接打开也能正常调用接口
     function getTokenFromUrl() {
       const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get('token') || "no";
+      return urlParams.get('token') || "__INJECTED_API_KEY__";
     }
     
-    const OPENAI_API_KEY = getTokenFromUrl();  // 从URL参数获取token，如果没有则使用"no"
+    const OPENAI_API_KEY = getTokenFromUrl();
     let currentModel = "unknown";
     let availableModels = [];
     let messages = [

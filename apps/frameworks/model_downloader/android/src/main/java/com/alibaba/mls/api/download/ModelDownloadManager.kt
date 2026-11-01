@@ -4,6 +4,7 @@ package com.alibaba.mls.api.download
 
 import android.content.Context
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mls.api.ModelStorageConfig
 import com.alibaba.mls.api.download.hf.HfModelDownloader
 import com.alibaba.mls.api.download.ms.MsModelDownloader
 import com.alibaba.mls.api.download.DownloadCoroutineManager
@@ -16,7 +17,7 @@ import java.io.File
  */
 class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDownloadCallback {
 
-    private val cacheDir: String = context.filesDir.absolutePath + "/.mnnmodels"
+    private val appContext: Context = context.applicationContext
     private val hfDownloader: HfModelDownloader
     private val msDownloader: MsModelDownloader
 
@@ -24,8 +25,19 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     private val downloadListeners: MutableList<DownloadListener> = java.util.concurrent.CopyOnWriteArrayList()
 
     init {
+        val cacheDir = currentCacheDir()
         hfDownloader = HfModelDownloader(this, cacheDir)
         msDownloader = MsModelDownloader(this, cacheDir)
+    }
+
+    /** Resolve the current model storage root from [ModelStorageConfig]. */
+    private fun currentCacheDir(): String = ModelStorageConfig.getModelRootPath(appContext)
+
+    /** Push the latest storage path to the underlying downloaders. */
+    private fun syncCacheRoot() {
+        val path = currentCacheDir()
+        hfDownloader.cacheRootPath = path
+        msDownloader.cacheRootPath = path
     }
     
     // Cache for download info to support progress and pause states
@@ -71,6 +83,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     fun getProgressCallbackIntervalMs(): Long = progressCallbackIntervalMs
 
     fun startDownload(modelId: String) {
+        syncCacheRoot()
         // Clear stale pause flags (e.g. after deleteModel on an idle task).
         hfDownloader.clearPause(modelId)
         msDownloader.clearPause(modelId)
@@ -104,6 +117,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun pauseDownload(modelId: String) {
+        syncCacheRoot()
         hfDownloader.pause(modelId)
         msDownloader.pause(modelId)
     }
@@ -113,6 +127,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun deleteModel(modelId: String) {
+        syncCacheRoot()
         // Stop ongoing transfer first to avoid progress callbacks restoring stale state.
         pauseDownload(modelId)
         progressDispatchTrackers.remove(modelId)
@@ -137,6 +152,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
 
     fun checkForUpdate(modelId: String?) {
         if (modelId == null) return
+        syncCacheRoot()
         DownloadCoroutineManager.launchDownload {
              if (modelId.startsWith("HuggingFace/") || modelId.startsWith("Huggingface/")) {
                  hfDownloader.checkUpdate(modelId)
@@ -148,6 +164,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun getDownloadInfo(modelId: String): DownloadInfo {
+        syncCacheRoot()
         // First check if we have active/cached info
         val cachedInfo = downloadInfoMap[modelId]
         if (cachedInfo != null) {
@@ -196,6 +213,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun getDownloadedFile(modelId: String): File? {
+        syncCacheRoot()
         return when {
             modelId.startsWith("HuggingFace/") || modelId.startsWith("Huggingface/") -> {
                 hfDownloader.getDownloadPath(modelId).takeIf { it.exists() }
@@ -394,6 +412,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     fun getRealDownloadSize(modelId: String): Long {
+         syncCacheRoot()
          val savedSize = DownloadPersistentData.getDownloadSizeSaved(ApplicationProvider.get(), modelId)
          if (savedSize > 0) return savedSize
          
@@ -406,6 +425,7 @@ class ModelDownloadManager(context: Context) : ModelRepoDownloader.ModelRepoDown
     }
 
     private fun getLocalDownloadedTime(modelId: String): Long {
+        syncCacheRoot()
         val persisted = DownloadPersistentData.getDownloadedTime(ApplicationProvider.get(), modelId)
         if (persisted > 0L) return persisted
 

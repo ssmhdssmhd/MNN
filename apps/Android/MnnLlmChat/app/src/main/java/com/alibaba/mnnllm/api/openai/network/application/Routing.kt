@@ -69,9 +69,10 @@ fun Application.configureRouting() {
 private fun loadHtmlFromAssets(): String {
     return try {
         val context = com.alibaba.mnnllm.android.MnnLlmApplication.getAppContext()
+        val apiKey = com.alibaba.mnnllm.api.openai.service.ApiServerConfig.getApiKey(context)
         val inputStream: InputStream = context.assets.open("test_page.html")
         inputStream.bufferedReader().use { reader ->
-            reader.readText()
+            reader.readText().replace("__INJECTED_API_KEY__", apiKey)
         }
     } catch (e: Exception) {
         throw Exception("Failed to load HTML from assets: ${e.message}")

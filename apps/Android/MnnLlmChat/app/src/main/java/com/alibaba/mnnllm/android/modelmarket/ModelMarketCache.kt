@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.modelmarket
 
 import android.content.Context
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mls.api.ModelStorageConfig
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -219,8 +220,8 @@ object ModelMarketCache {
      */
     private suspend fun loadLocalAndBuiltinModels(context: Context) = withContext(Dispatchers.IO) {
         try {
-            // Scan local config files under .mnnmodels directory
-            val mnnModelsDir = File(context.filesDir, ".mnnmodels")
+            // Scan local config files under the configured model storage directory
+            val mnnModelsDir = ModelStorageConfig.getModelRootDir(context)
             if (mnnModelsDir.exists()) {
                 scanForLocalConfigs(mnnModelsDir)
             }

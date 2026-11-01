@@ -14,6 +14,7 @@ import com.alibaba.mnnllm.android.databinding.ActivityStorageManagementBinding
 import com.alibaba.mnnllm.android.modelist.ModelDeletionHelper
 import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.MmapUtils
+import com.alibaba.mls.api.ModelStorageConfig
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 
@@ -51,6 +52,8 @@ class StorageManagementActivity : AppCompatActivity() {
         binding.storageRecycler.adapter = adapter
 
         binding.btnCleanCleanableCache.setOnClickListener { showCleanCleanableConfirm() }
+
+        setupModelStoragePath()
 
         loadSummary()
         refreshList()
@@ -213,5 +216,75 @@ class StorageManagementActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    // ---------- Model storage path ----------
+
+    private fun setupModelStoragePath() {
+        refreshModelStoragePath()
+
+        binding.btnPathDefault.setOnClickListener {
+            applyModelStoragePath(ModelStorageConfig.getDefaultModelRootPath(this))
+        }
+
+        binding.btnPathExternal.setOnClickListener {
+            val externalRoot = getExternalFilesDir(null)
+            if (externalRoot == null) {
+                Toast.makeText(this, getString(R.string.storage_model_path_invalid), Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val path = File(externalRoot, ".mnnmodels").absolutePath
+            applyModelStoragePath(path)
+        }
+
+        binding.btnPathApply.setOnClickListener {
+            val path = binding.editCustomPath.text?.toString()?.trim().orEmpty()
+            if (path.isEmpty()) {
+                Toast.makeText(this, getString(R.string.storage_model_path_invalid), Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            applyModelStoragePath(path)
+        }
+
+        binding.btnPathReset.setOnClickListener {
+            if (ModelStorageConfig.isDefaultPath(this)) {
+                Toast.makeText(this, getString(R.string.storage_model_path_already_default), Toast.LENGTH_SHORT).show()
+            } else {
+                ModelStorageConfig.resetToDefault(this)
+                onModelStoragePathChanged()
+            }
+        }
+    }
+
+    private fun refreshModelStoragePath() {
+        binding.tvModelStoragePath.text = ModelStorageConfig.getModelRootPath(this)
+    }
+
+    /** Validate and persist a model storage path. Returns true on success. */
+    private fun applyModelStoragePath(path: String): Boolean {
+        val dir = File(path)
+        val valid = try {
+            if (!dir.exists()) {
+                dir.mkdirs()
+            }
+            dir.exists() && dir.isDirectory && dir.canWrite()
+        } catch (e: Exception) {
+            false
+        }
+        if (!valid) {
+            Toast.makeText(this, getString(R.string.storage_model_path_invalid), Toast.LENGTH_SHORT).show()
+            return false
+        }
+        ModelStorageConfig.setModelRootPath(this, dir.absolutePath)
+        onModelStoragePathChanged()
+        return true
+    }
+
+    private fun onModelStoragePathChanged() {
+        refreshModelStoragePath()
+        binding.editCustomPath.text?.clear()
+        Toast.makeText(this, getString(R.string.storage_model_path_applied), Toast.LENGTH_SHORT).show()
+        loadSummary()
+        refreshList()
     }
 }

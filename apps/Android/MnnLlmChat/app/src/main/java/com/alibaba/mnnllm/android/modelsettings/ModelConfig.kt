@@ -5,6 +5,7 @@ package com.alibaba.mnnllm.android.modelsettings
 
 import android.util.Log
 import com.alibaba.mls.api.ApplicationProvider
+import com.alibaba.mls.api.ModelStorageConfig
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.android.utils.FileUtils
@@ -171,7 +172,7 @@ data class ModelConfig(
             }
             if (modelId.startsWith("Builtin/")) {
                 val modelName = modelId.removePrefix("Builtin/MNN/")
-                val builtinModelsDir = File(ApplicationProvider.get().filesDir, ".mnnmodels/builtin")
+                val builtinModelsDir = File(ModelStorageConfig.getModelRootDir(ApplicationProvider.get()), "builtin")
                 val modelDir = File(builtinModelsDir, modelName)
                 val configFilePath = File(modelDir, "config.json")
                 Log.d(TAG, "getDefaultConfigFile for builtin model $modelId: modelName=$modelName, builtinModelsDir=${builtinModelsDir.absolutePath}, modelDir=${modelDir.absolutePath}, configFilePath=${configFilePath.absolutePath}, exists=${configFilePath.exists()}")
@@ -258,7 +259,7 @@ data class ModelConfig(
             }
             if (modelId.startsWith("Builtin/")) {
                 val modelName = modelId.removePrefix("Builtin/MNN/")
-                val builtinModelsDir = File(ApplicationProvider.get().filesDir, ".mnnmodels/builtin")
+                val builtinModelsDir = File(ModelStorageConfig.getModelRootDir(ApplicationProvider.get()), "builtin")
                 val modelDir = File(builtinModelsDir, modelName)
                 return File(modelDir, "market_config.json").absolutePath
             }

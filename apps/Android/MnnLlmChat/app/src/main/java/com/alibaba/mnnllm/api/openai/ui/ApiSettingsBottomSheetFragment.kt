@@ -98,11 +98,19 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         updateAccessUrl()
     }
 
-    /** 显示当前配置的完整访问地址，监听所有网卡时用回环地址便于调试。 */
+    /** 显示当前配置的完整访问地址。监听所有网卡(0.0.0.0)时用设备局域网IP，便于浏览器直接打开。 */
     private fun updateAccessUrl() {
         val host = when {
             currentIpAddress.isBlank() -> "127.0.0.1"
-            currentIpAddress == "0.0.0.0" -> "127.0.0.1"
+            currentIpAddress == "0.0.0.0" -> {
+                // 绑定到所有网卡时，展示设备实际局域网IP，浏览器才能访问
+                val deviceIp = try {
+                    getDeviceIpAddress()
+                } catch (e: Exception) {
+                    "127.0.0.1"
+                }
+                if (deviceIp.isBlank() || deviceIp == "0.0.0.0") "127.0.0.1" else deviceIp
+            }
             else -> currentIpAddress
         }
         val scheme = if (useHttpsUrl) "https" else "http"

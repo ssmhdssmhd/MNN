@@ -3,6 +3,7 @@
 package com.alibaba.mnnllm.android.modelist
 
 import android.content.Context
+import com.alibaba.mls.api.ModelStorageConfig
 import com.alibaba.mls.api.download.ModelDownloadManager
 import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.history.HistoryUtils
@@ -424,8 +425,8 @@ object ModelDeletionHelper {
             }
         }
 
-        // Calculate model storage size
-        val mnnModelsDir = File(filesDir, ".mnnmodels")
+        // Calculate model storage size (configurable root)
+        val mnnModelsDir = ModelStorageConfig.getModelRootDir(context)
         val modelStorageSize = if (mnnModelsDir.exists()) calculateDirSize(mnnModelsDir) else 0L
 
         // Get internal storage stats

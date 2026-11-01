@@ -14,7 +14,9 @@
 
 历史构建产物见 [Releases](https://github.com/ssmhdssmhd/MNN/releases) 与 Actions 的 Artifacts。
 
-> 两个 App 的桌面显示名称均为「沫兮本地化 AI」。MnnLlmChat 的 API 设置页实时显示访问地址（如 `http://127.0.0.1:8080/v1`），点击即可复制。
+> 两个 App 的桌面显示名称均为「沫兮本地化 AI」。MnnLlmChat 的 API 服务默认绑定 `0.0.0.0`（局域网可访问）并开启 CORS；设置页实时显示访问地址（如 `http://<设备局域网IP>:8080/v1`），点击即可复制，浏览器打开根路径 `/` 即可直接使用内置测试页。
+>
+> MnnLlmChat「存储管理」页可设置模型存储路径（内置 / 外置 / 自定义），新下载的模型与放置在该路径下的模型文件夹（含 `config.json`）均可被调用。
 >
 > MnnLlmChat「关于」页会自动检测本仓库最新 Release：有新版时弹窗提示，同意后自动下载并拉起安装；下载支持断点续传，暂停后进度保留。
 
