@@ -66,9 +66,11 @@ jobs:
           ../${{ matrix.script }} "-DMNN_USE_LOGCAT=true -DMNN_OPENCL=true -DMNN_SEP_BUILD=OFF -DMNN_JNI=TRUE -DMNN_BUILD_TEST=OFF -DMNN_BUILD_BENCHMARK=OFF -DMNN_LOW_MEMORY=true -DMNN_CPU_WEIGHT_DEQUANT_GEMM=true $EXTRA -DCMAKE_INSTALL_PREFIX=$PREFIX"
           make install
           ls -lh lib
-          if [ -f libmnncore.so ] && [ ! -f lib/libmnncore.so ]; then
-            cp libmnncore.so lib/
+          JNI_LIB=$(find . -name libmnncore.so -type f | head -n 1)
+          if [ -n "$JNI_LIB" ]; then
+            cp "$JNI_LIB" lib/
           fi
+          ls -lh lib
 
       - name: 上传原生库
         uses: actions/upload-artifact@v4
