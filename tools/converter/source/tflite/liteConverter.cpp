@@ -1,0 +1,580 @@
+//
+//  liteConverter.cpp
+//  MNNConverter
+//
+//  Created by MNN on 2019/01/31.
+//  Copyright © 2018, Alibaba Group Holding Limited
+//
+
+#include <iostream>
+#include <functional>
+#include <stdint.h>
+#include "logkit.h"
+#include "flatbuffers/idl.h"
+#include "flatbuffers/minireflect.h"
+#include "flatbuffers/util.h"
+
+#include "liteConverter.hpp"
+#include "liteOpConverter.hpp"
+#include "TfliteUtils.hpp"
+
+static bool invalidTfliteIndex(const char* what, int index, int size) {
+    if (index < 0 || index >= size) {
+        MNN_ERROR("[ERROR] Invalid TFLite Model: %s index %d out of range (size %d)\n", what, index, size);
+        return true;
+    }
+    return false;
+}
+
+// Keep in sync with MNN_MAX_TENSOR_DIM in source/core/TensorUtils.hpp
+static const int kMaxTfliteTensorDim = 9;
+static bool validTfliteShape(const std::vector<int>& shape) {
+    if ((int)shape.size() > kMaxTfliteTensorDim) {
+        return false;
+    }
+    int64_t prod = 1;
+    for (size_t i = 0; i < shape.size(); ++i) {
+        int d = shape[i];
+        if (d < -1) {
+            return false;
+        }
+        if (d > 0) {
+            if (prod > (int64_t)INT32_MAX / d) {
+                return false;
+            }
+            prod *= d;
+        }
+    }
+    return true;
+}
+
+class TfliteModel {
+public:
+    TfliteModel() = delete;
+
+    TfliteModel(const std::string fileName);
+    ~TfliteModel();
+
+    void readModel();
+
+    inline std::unique_ptr<tflite::ModelT>& get();
+
+private:
+    const std::string _modelName;
+    std::unique_ptr<tflite::ModelT> _tfliteModel;
+};
+static MNN::DataType _dataTypeMap(tflite::TensorType type) {
+    switch (type) {
+        case tflite::TensorType_FLOAT32:
+            return MNN::DataType_DT_FLOAT;
+            break;
+        case tflite::TensorType_INT32:
+            return MNN::DataType_DT_INT32;
+            break;
+        case tflite::TensorType_UINT8:
+            return MNN::DataType_DT_UINT8;
+            break;
+        default:
+            return MNN::DataType_DT_FLOAT;
+            break;
+    }
+}
+bool dumpTflite2Json(const char* modelFile, const char* jsonFile) {
+    std::ifstream inputFile(modelFile, std::ios::binary);
+    inputFile.seekg(0, std::ios::end);
+    auto size = inputFile.tellg();
+    inputFile.seekg(0, std::ios::beg);
+
+    char* buffer = new char[size];
+
+    inputFile.read((char*)buffer, size);
+    flatbuffers::Verifier verify((uint8_t*)buffer, size);
+    if (!tflite::VerifyModelBuffer(verify)) {
+        LOG(FATAL) << "TFlite model version ERROR!";
+        return false;
+    }
+
+    std::ofstream output(jsonFile);
+    auto s = flatbuffers::FlatBufferToString((const uint8_t*)buffer, tflite::ModelTypeTable());
+    output << s;
+
+    delete[] buffer;
+    return true;
+}
+
+static bool _converteConstantDataToMNNConstantNode(
+    int tensorIndex, const std::vector<std::unique_ptr<tflite::TensorT>>& tfliteTensors,
+    const std::vector<std::unique_ptr<tflite::BufferT>>& tfliteModelBuffers, std::unique_ptr<MNN::NetT>& MNNNetT) {
+    const auto* tensor = tfliteAt(tfliteTensors, tensorIndex, "tensor");
+    if (nullptr == tensor) {
+        return false;
+    }
+    const int bufferIndex = static_cast<int>(tensor->buffer);
+    const auto* buffer = tfliteAt(tfliteModelBuffers, bufferIndex, "buffer");
+    if (nullptr == buffer) {
+        return false;
+    }
+    // check whether buffer data size is greater than zero,
+    // if size > 0, then this tensor is Constant, convete this tensor to be MNN Constant node
+    const auto& tensorBuffer = buffer->data;
+    const auto bufferSize = tensorBuffer.size();
+    if (bufferSize == 0) {
+        return true;
+    }
+
+    // this is Constant data
+    std::unique_ptr<MNN::OpT> mnnConstantOp(new MNN::OpT);
+    mnnConstantOp->name      = tensor->name;
+    mnnConstantOp->type      = MNN::OpType_Const;
+    mnnConstantOp->main.type = MNN::OpParameter_Blob;
+    mnnConstantOp->outputIndexes.push_back(tensorIndex);
+
+    std::unique_ptr<MNN::BlobT> mnnBlob(new MNN::BlobT);
+    // TODO, map tflite data type to mnn data type
+    mnnBlob->dataType   = _dataTypeMap(tensor->type);
+    mnnBlob->dataFormat = MNN::MNN_DATA_FORMAT_NHWC;
+    mnnBlob->dims       = tensor->shape;
+
+    if (mnnBlob->dataType == MNN::DataType_DT_FLOAT) {
+        mnnBlob->float32s.resize(bufferSize / 4);
+        memcpy(mnnBlob->float32s.data(), tensorBuffer.data(), bufferSize);
+    } else if (mnnBlob->dataType == MNN::DataType_DT_INT32) {
+        mnnBlob->int32s.resize(bufferSize / 4);
+        memcpy(mnnBlob->int32s.data(), tensorBuffer.data(), bufferSize);
+    } else {
+        DCHECK(false) << "TODO support other data type!";
+    }
+    mnnConstantOp->main.value = mnnBlob.release();
+
+    MNNNetT->tensorName.emplace_back(mnnConstantOp->name);
+    MNNNetT->oplists.emplace_back(std::move(mnnConstantOp));
+    return true;
+}
+template<typename SRC, typename DST>
+void convert(const SRC* s, DST* d, size_t sizeInBytes) {
+    auto size = sizeInBytes / sizeof(SRC);
+    for (size_t i=0; i<size; ++i) {
+        d[i] = s[i];
+    }
+}
+
+
+static std::function<void(const void*, void*, size_t size)>  _getConvertFunction(tflite::TensorType type) {
+    switch (type) {
+        case tflite::TensorType_FLOAT64:
+            return [](const void* s, void* d, size_t size) {
+                convert((double*)s, (float*)d, size);
+            };
+        case tflite::TensorType_UINT64:
+            return [](const void* s, void* d, size_t size) {
+                convert((uint64_t*)s, (int32_t*)d, size);
+            };
+        case tflite::TensorType_INT16:
+            return [](const void* s, void* d, size_t size) {
+                convert((int16_t*)s, (int32_t*)d, size);
+            };
+        case tflite::TensorType_INT64:
+            return [](const void* s, void* d, size_t size) {
+                convert((int64_t*)s, (int32_t*)d, size);
+            };
+        default:
+            break;
+    }
+    return nullptr;
+}
+static MNN::DataType _convertType(tflite::TensorType type) {
+    if (type == tflite::TensorType_FLOAT32) {
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type == tflite::TensorType_FLOAT64) {
+        return MNN::DataType_DT_FLOAT;
+    }
+    if (type == tflite::TensorType_INT8) {
+        return MNN::DataType_DT_INT8;
+    }
+    if (type == tflite::TensorType_INT16) {
+        return MNN::DataType_DT_INT32;
+    }
+    if (type == tflite::TensorType_INT32) {
+        return MNN::DataType_DT_INT32;
+    }
+    if (type == tflite::TensorType_INT64) {
+        return MNN::DataType_DT_INT32;
+    }
+    if (type == tflite::TensorType_UINT8) {
+        return MNN::DataType_DT_UINT8;
+    }
+    if (type == tflite::TensorType_UINT64) {
+        return MNN::DataType_DT_INT32;
+    }
+    if (type == tflite::TensorType_FLOAT16) {
+        return MNN::DataType_DT_HALF;
+    }
+    return MNN::DataType_DT_INVALID;
+}
+static bool needExtractInput(uint32_t opCode) {
+#define NONEED(x) if (x == opCode) return false;
+    NONEED(tflite::BuiltinOperator_CONV_2D);
+    NONEED(tflite::BuiltinOperator_DEPTHWISE_CONV_2D);
+    NONEED(tflite::BuiltinOperator_SPLIT);
+    NONEED(tflite::BuiltinOperator_CONCATENATION);
+    NONEED(tflite::BuiltinOperator_CONV_2D);
+    NONEED(tflite::BuiltinOperator_RESIZE_BILINEAR);
+    NONEED(tflite::BuiltinOperator_RESIZE_NEAREST_NEIGHBOR);
+    NONEED(tflite::BuiltinOperator_SOFTMAX);
+
+
+    return true;
+}
+
+int tflite2MNNNet(const std::string inputModel, const std::string bizCode,
+                  std::unique_ptr<MNN::NetT>& MNNNetT) {
+    const std::string model_name = inputModel;
+    auto model                   = std::shared_ptr<TfliteModel>(new TfliteModel(model_name));
+    model->readModel();
+    auto& tfliteModel = model->get();
+    if (nullptr == tfliteModel) {
+        MNN_ERROR("[ERROR] Invalid TFLite Model:%s\n", inputModel.c_str());
+        MNNNetT.reset();
+        return 1;
+    }
+
+    const auto& tfliteOpSet = tfliteModel->operator_codes;
+    // const auto operatorCodesSize = tfliteOpSet.size();
+    const auto subGraphsSize      = tfliteModel->subgraphs.size();
+    const auto& tfliteModelBuffer = tfliteModel->buffers;
+
+    // check whether this tflite model is quantization model
+    // use the weight's data type of Conv2D|DepthwiseConv2D to decide quantizedModel mode
+    int quantizedModel = 0;
+    for (int i = 0; i < subGraphsSize; ++i) {
+        if (nullptr == tfliteModel->subgraphs[i]) {
+            MNN_ERROR("[ERROR] Invalid TFLite Model: null subgraph\n");
+            MNNNetT.reset();
+            return 1;
+        }
+        const auto& ops     = tfliteModel->subgraphs[i]->operators;
+        const auto& tensors = tfliteModel->subgraphs[i]->tensors;
+        const int opNums    = static_cast<int>(ops.size());
+        for (int j = 0; j < opNums; ++j) {
+            if (nullptr == ops[j]) {
+                MNN_ERROR("[ERROR] Invalid TFLite Model: null operator\n");
+                MNNNetT.reset();
+                return 1;
+            }
+            const int opcodeIndex = ops[j]->opcode_index;
+            if (invalidTfliteIndex("opcode", opcodeIndex, static_cast<int>(tfliteOpSet.size()))) {
+                MNNNetT.reset();
+                return 1;
+            }
+            auto opCode     = liteOpConverter:: getOpCode(tfliteOpSet[opcodeIndex].get());
+            if (opCode == tflite::BuiltinOperator_CONV_2D || opCode == tflite::BuiltinOperator_DEPTHWISE_CONV_2D ||
+                opCode == tflite::BuiltinOperator_TRANSPOSE_CONV) {
+                if (ops[j]->inputs.size() < 2) {
+                    MNN_ERROR("[ERROR] Invalid TFLite Model: conv op has %zu inputs, need at least 2\n",
+                              ops[j]->inputs.size());
+                    MNNNetT.reset();
+                    return 1;
+                }
+                const int weightIndex = ops[j]->inputs[1];
+                const auto* weightTensor = tfliteAt(tensors, weightIndex, "tensor");
+                if (nullptr == weightTensor) {
+                    MNNNetT.reset();
+                    return 1;
+                }
+                if (weightTensor->type == tflite::TensorType_UINT8) {
+                    quantizedModel = 1;
+                } else if (weightTensor->type == tflite::TensorType_INT8) {
+                    quantizedModel = 2;
+                }
+            }
+        }
+    }
+    auto& buffers = tfliteModel->buffers;
+
+    for (int i = 0; i < subGraphsSize; ++i) {
+        if (nullptr == tfliteModel->subgraphs[i]) {
+            MNN_ERROR("[ERROR] Invalid TFLite Model: null subgraph\n");
+            MNNNetT.reset();
+            return 1;
+        }
+        const auto& ops     = tfliteModel->subgraphs[i]->operators;
+        const auto& tensors = tfliteModel->subgraphs[i]->tensors;
+        for (size_t t = 0; t < tensors.size(); ++t) {
+            const auto* tensor = tfliteAt(tensors, static_cast<int>(t), "tensor");
+            if (nullptr == tensor || !validTfliteShape(tensor->shape)) {
+                MNN_ERROR("[ERROR] Invalid TFLite Model: tensor %zu has invalid shape\n", t);
+                MNNNetT.reset();
+                return 1;
+            }
+        }
+
+        // set const
+        std::vector<bool> extractedTensors(tfliteModel->subgraphs[i]->tensors.size(), false);
+
+        // set input
+        for (const auto index : tfliteModel->subgraphs[i]->inputs) {
+            const auto* inputTensor = tfliteAt(tensors, index, "tensor");
+            if (nullptr == inputTensor) {
+                MNNNetT.reset();
+                return 1;
+            }
+            MNN::OpT* inputOp       = new MNN::OpT;
+            inputOp->name           = inputTensor->name;
+            inputOp->type           = MNN::OpType_Input;
+            inputOp->main.type      = MNN::OpParameter_Input;
+
+            auto inputParam     = new MNN::InputT;
+            inputParam->dformat = MNN::MNN_DATA_FORMAT_NHWC;
+            inputParam->dims = inputTensor->shape;
+            inputParam->dtype = _convertType(inputTensor->type);
+            inputOp->main.value = inputParam;
+            inputOp->outputIndexes.push_back(index);
+            MNNNetT->oplists.emplace_back(inputOp);
+        }
+
+        // set output names
+        for (int k = 0; k < tfliteModel->subgraphs[i]->outputs.size(); ++k) {
+            int outIndex = tfliteModel->subgraphs[i]->outputs[k];
+            const auto* outputTensor = tfliteAt(tensors, outIndex, "tensor");
+            if (nullptr == outputTensor) {
+                MNNNetT.reset();
+                return 1;
+            }
+            MNNNetT->outputName.push_back(outputTensor->name);
+        }
+        // tensor names
+        for (size_t t = 0; t < tensors.size(); ++t) {
+            const auto* tensor = tfliteAt(tensors, static_cast<int>(t), "tensor");
+            if (nullptr == tensor) {
+                MNNNetT.reset();
+                return 1;
+            }
+            MNNNetT->tensorName.push_back(tensor->name);
+        }
+
+        const int opNums = ops.size();
+        for (int j = 0; j < opNums; ++j) {
+            if (nullptr == ops[j]) {
+                MNN_ERROR("[ERROR] Invalid TFLite Model: null operator\n");
+                MNNNetT.reset();
+                return 1;
+            }
+            const int opcodeIndex = ops[j]->opcode_index;
+            if (invalidTfliteIndex("opcode", opcodeIndex, static_cast<int>(tfliteOpSet.size()))) {
+                MNNNetT.reset();
+                return 1;
+            }
+            auto opCode = liteOpConverter:: getOpCode(tfliteOpSet[opcodeIndex].get());
+
+            if (needExtractInput(opCode)) {
+                for (auto input : ops[j]->inputs) {
+                    if (input < 0 || input >= static_cast<int>(extractedTensors.size()) || extractedTensors[input]) {
+                        continue;
+                    }
+                    extractedTensors[input] = true;
+                    const auto* tensor = tfliteAt(tfliteModel->subgraphs[i]->tensors, input, "tensor");
+                    if (nullptr == tensor) {
+                        MNNNetT.reset();
+                        return 1;
+                    }
+                    const auto* buffer = tfliteAt(buffers, static_cast<int>(tensor->buffer), "buffer");
+                    if (nullptr == buffer) {
+                        MNNNetT.reset();
+                        return 1;
+                    }
+                    if (buffer->data.empty()) {
+                        continue;
+                    }
+                    std::unique_ptr<MNN::OpT> newOp(new MNN::OpT);
+                    newOp->type = MNN::OpType_Const;
+                    newOp->name = tensor->name;
+                    newOp->outputIndexes = {input};
+                    newOp->main.type = MNN::OpParameter_Blob;
+                    newOp->main.value = new MNN::BlobT;
+                    auto blob = newOp->main.AsBlob();
+                    blob->dims = tensor->shape;
+                    blob->dataFormat = MNN::MNN_DATA_FORMAT_NHWC;
+                    blob->dataType = _convertType(tensor->type);
+                    if (MNN::DataType_DT_INVALID == blob->dataType) {
+                        MNN_ERROR("Don't support tensor type for %s\n", tflite::EnumNameTensorType(tensor->type));
+                        MNNNetT.reset();
+                        return 0;
+                    }
+                    int size = 1;
+                    for (auto s : blob->dims) {
+                        size *= s;
+                    }
+                    void* dst = nullptr;
+                    switch (blob->dataType) {
+                        case MNN::DataType_DT_FLOAT:
+                            blob->float32s.resize(size);
+                            dst = blob->float32s.data();
+                            break;
+                        case MNN::DataType_DT_INT32:
+                            blob->int32s.resize(size);
+                            dst = blob->int32s.data();
+                            break;
+                        case MNN::DataType_DT_INT8:
+                            blob->int8s.resize(size);
+                            dst = blob->int8s.data();
+                            break;
+                        case MNN::DataType_DT_UINT8:
+                            blob->uint8s.resize(size);
+                            dst = blob->uint8s.data();
+                            break;
+                        case MNN::DataType_DT_HALF:
+                            blob->uint8s.resize(size * 2);
+                            dst = blob->uint8s.data();
+                            break;
+                        default:
+                            break;
+                    }
+                    auto func = _getConvertFunction(tensor->type);
+                    if (nullptr == func) {
+                        ::memcpy(dst, buffer->data.data(), buffer->data.size());
+                    } else {
+                        func(buffer->data.data(), dst, buffer->data.size());
+                    }
+                    MNNNetT->oplists.emplace_back(std::move(newOp));
+                }
+            }
+
+
+            if (opCode == tflite::BuiltinOperator_CUSTOM) {
+                const int inputSize = ops[j]->inputs.size();
+                for (int k = 0; k < inputSize; ++k) {
+                    if (ops[j]->inputs[k] < 0) {
+                        continue;
+                    }
+                    if (!_converteConstantDataToMNNConstantNode(ops[j]->inputs[k], tensors, tfliteModelBuffer, MNNNetT)) {
+                        MNNNetT.reset();
+                        return 1;
+                    }
+                }
+            }
+
+            // Owned until it is handed to the net below. Both error paths return before that, so a raw
+            // pointer here would leak the op on every rejected operator.
+            std::unique_ptr<MNN::OpT> opHolder(new MNN::OpT);
+            MNN::OpT* op = opHolder.get();
+            auto creator = liteOpConverterSuit::get()->search(opCode);
+            DCHECK(creator) << "NOT_SUPPORTED_OP: [ " << tflite::EnumNameBuiltinOperator(opCode) << " ]";
+            if (nullptr == creator) {
+                // Has error, reset net
+                MNNNetT.reset();
+                return 0;
+            }
+            if (ops[j]->outputs.empty()) {
+                MNN_ERROR("[ERROR] Invalid TFLite Model: op has no outputs\n");
+                delete op;
+                MNNNetT.reset();
+                return 1;
+            }
+            const auto* outputTensor = tfliteAt(tensors, ops[j]->outputs[0], "tensor");
+            if (nullptr == outputTensor) {
+                delete op;
+                MNNNetT.reset();
+                return 1;
+            }
+            // tflite op to MNN op
+            op->name      = outputTensor->name;
+            op->type      = creator->opType(quantizedModel);
+            op->main.type = creator->type(quantizedModel);
+            // set default input output index
+            auto insertQuantinfo = [&](int idx) {
+                if (quantizedModel != 2) {
+                    return;
+                }
+                const auto* tensor = tfliteAt(tensors, idx, "tensor");
+                if (nullptr == tensor || tensor->type != tflite::TensorType_INT8) {
+                    return;
+                }
+                auto quant = tensor->quantization.get();
+                if (!quant || quant->scale.empty() || quant->zero_point.empty()) {
+                    return;
+                }
+                std::unique_ptr<MNN::TensorDescribeT> tensorDescribe(new MNN::TensorDescribeT);
+                tensorDescribe->index = idx;
+                tensorDescribe->name = MNNNetT->tensorName[idx];
+                tensorDescribe->quantInfo.reset(new MNN::TensorQuantInfoT);
+                tensorDescribe->quantInfo->type = MNN::DataType_DT_INT8;
+                tensorDescribe->quantInfo->scale = quant->scale[0];
+                tensorDescribe->quantInfo->zero = quant->zero_point[0];
+                MNNNetT->extraTensorDescribe.emplace_back(std::move(tensorDescribe));
+            };
+            op->inputIndexes.clear();
+            op->outputIndexes.clear();
+
+            for (int i = 0; i < ops[j]->inputs.size(); i++) {
+                if (ops[j]->inputs[i] >= 0) {
+                    op->inputIndexes.emplace_back(ops[j]->inputs[i]);
+                }
+            }
+            for (int i = 0; i < ops[j]->outputs.size(); i++) {
+                if (ops[j]->outputs[i] >= 0) {
+                    op->outputIndexes.emplace_back(ops[j]->outputs[i]);
+                    insertQuantinfo(ops[j]->outputs[i]);
+                }
+            }
+            // Run actual conversion
+            creator->run(op, ops[j], tensors, tfliteModelBuffer, tfliteOpSet, quantizedModel);
+            if (op->type == MNN::OpType_MAX) {
+                // Has error, reset net
+                MNNNetT.reset();
+                return 0;
+            }
+            MNNNetT->oplists.emplace_back(opHolder.release());
+        }
+    }
+
+    if (MNNNetT->oplists.empty()) {
+        MNN_ERROR("[ERROR] Invalid TFLite Model: no operator\n");
+        MNNNetT.reset();
+        return 1;
+    }
+    MNNNetT->sourceType = MNN::NetSource_TFLITE;
+    MNNNetT->bizCode    = bizCode;
+
+    return 0;
+}
+
+TfliteModel::TfliteModel(const std::string fileName) : _modelName(fileName) {
+}
+
+TfliteModel::~TfliteModel() {
+}
+
+void TfliteModel::readModel() {
+    std::ifstream inputFile(_modelName, std::ios::binary);
+    if (!inputFile) {
+        MNN_ERROR("[ERROR] Cannot open TFLite model: %s\n", _modelName.c_str());
+        return;
+    }
+    inputFile.seekg(0, std::ios::end);
+    const auto size = inputFile.tellg();
+    if (size <= 0) {
+        MNN_ERROR("[ERROR] Invalid TFLite Model: empty file\n");
+        return;
+    }
+    inputFile.seekg(0, std::ios::beg);
+
+    char* buffer = new char[size];
+    inputFile.read(buffer, size);
+    inputFile.close();
+
+    // verify model; do not UnPack a failed buffer (LOG(FATAL) does not abort)
+    flatbuffers::Verifier verify((uint8_t*)buffer, size);
+    if (!tflite::VerifyModelBuffer(verify)) {
+        MNN_ERROR("[ERROR] Invalid TFLite Model buffer\n");
+        delete[] buffer;
+        return;
+    }
+
+    _tfliteModel = tflite::UnPackModel(buffer);
+    delete[] buffer;
+}
+
+std::unique_ptr<tflite::ModelT>& TfliteModel::get() {
+    return _tfliteModel;
+}

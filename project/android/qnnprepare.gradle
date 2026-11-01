@@ -1,0 +1,255 @@
+// QNN Dependencies Preparation
+// This gradle file handles downloading and preparing QNN dependencies
+
+// QNN configuration
+ext {
+    // QNN download settings
+    QNN_LIBS_URL = 'https://meta.alicdn.com/data/mnn/libs/qnn_inc_libs_2_37.zip'
+}
+
+def qnnZipName = 'qnn_inc_libs.zip'
+def qnnZipFile = new File(buildDir, qnnZipName)
+def qnnPartFile = new File(buildDir, "${qnnZipName}.part")
+def qnnTmpDir = new File(buildDir, 'qnn_tmp')
+
+def configuredQnnSdkRoot = {
+    def value = project.hasProperty('QNN_SDK_ROOT')
+            ? project.property('QNN_SDK_ROOT')
+            : System.getenv('QNN_SDK_ROOT')
+    if (value == null || !value.toString().trim()) {
+        return null
+    }
+    return project.file(value.toString())
+}
+
+task prepareQnnDeps {
+    group = 'build setup'
+    description = 'Use QNN_SDK_ROOT or download the QNN archive, then prepare include/lib dependencies.'
+    dependsOn tasks.getByName('cleanNativePacked')
+    onlyIf { 
+        (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) ||
+                (project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS)
+    }
+    
+    // Define inputs and outputs for incremental build
+    inputs.property("qnn_libs_url", { QNN_LIBS_URL })
+    inputs.property("qnn_sdk_root", {
+        def root = configuredQnnSdkRoot()
+        root == null ? '' : root.absolutePath
+    })
+    inputs.property("build_qnn", { project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN })
+    inputs.property("build_vendor_backends", {
+        project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS
+    })
+    outputs.dir(new File(project.rootDir, '../../source/backend/qnn/3rdParty'))
+    outputs.dir(new File(buildDir, 'native-packed/native/libs'))
+    // A vendor split build must also clean libQnn*.so left by a previous
+    // standalone QNN build, so its preparation cannot be skipped as up-to-date.
+    outputs.upToDateWhen {
+        !(project.ext.has('BUILD_VENDOR_BACKENDS') &&
+                project.ext.BUILD_VENDOR_BACKENDS)
+    }
+    
+    doLast {
+        println "QNN backend is enabled. Preparing QNN dependencies..."
+
+        def sdkRoot = configuredQnnSdkRoot()
+        if (sdkRoot != null) {
+            if (!sdkRoot.isDirectory()) {
+                throw new GradleException(
+                        "QNN_SDK_ROOT is not a directory: ${sdkRoot}")
+            }
+            println "Using QNN_SDK_ROOT without downloading: ${sdkRoot.absolutePath}"
+            copyQnnFiles(sdkRoot)
+            return
+        }
+        
+        def url = QNN_LIBS_URL
+        println "Downloading QNN dependencies from ${url}"
+
+        if (!qnnZipFile.exists()) {
+            println "Downloading ${qnnZipName} ..."
+            qnnZipFile.parentFile.mkdirs()
+            project.delete(qnnPartFile)
+            
+            try {
+                new java.net.URL(url).withInputStream { inputStream ->
+                    qnnPartFile.withOutputStream { outputStream ->
+                        outputStream << inputStream
+                    }
+                }
+                if (!qnnPartFile.renameTo(qnnZipFile)) {
+                    project.delete(qnnPartFile)
+                    throw new GradleException(
+                            "Unable to publish downloaded QNN archive: ${qnnZipFile}")
+                }
+                println "Downloaded to: ${qnnZipFile.absolutePath}"
+            } catch (Exception e) {
+                project.delete(qnnPartFile)
+                throw new RuntimeException("Failed to download QNN dependencies from ${url}. Error: ${e.message}")
+            }
+        } else {
+            println "Using cached zip: ${qnnZipFile.absolutePath}"
+        }
+
+        // Clean temp dir and unpack
+        project.delete(qnnTmpDir)
+        qnnTmpDir.mkdirs()
+        copy {
+            from zipTree(qnnZipFile)
+            into qnnTmpDir
+        }
+
+        // Find the extracted QNN directory
+        def extractedQnnDir = findQnnDirectory(qnnTmpDir)
+        if (extractedQnnDir == null) {
+            throw new RuntimeException("Failed to find QNN directory structure in ${qnnZipFile.name}")
+        }
+        
+        copyQnnFiles(extractedQnnDir)
+    }
+}
+
+def findQnnDirectory(File searchDir) {
+    // Mirror the shell script's approach: find the 'include' directory
+    // anywhere in the hierarchy, then use its parent as the QNN root.
+    // This is more reliable than requiring both include and lib to be present
+    // at the same level.
+    
+    def foundIncludeDir = null
+    
+    searchDir.eachDirRecurse { dir ->
+        if (foundIncludeDir == null && dir.name == 'include') {
+            foundIncludeDir = dir
+        }
+    }
+    
+    if (foundIncludeDir != null) {
+        return foundIncludeDir.parentFile
+    }
+    
+    return null
+}
+
+def copyQnnFiles(File sourceDir) {
+    // Resolve destination directories
+    def qnnRoot = new File(project.rootDir, '../../source/backend/qnn/3rdParty')
+    def includeDir = new File(qnnRoot, 'include')
+    def libDir = new File(qnnRoot, 'lib')
+    
+    includeDir.mkdirs()
+    libDir.mkdirs()
+
+    // Copy include files
+    def sourceInclude = new File(sourceDir, 'include')
+    if (sourceInclude.exists()) {
+        copy {
+            from sourceInclude
+            into includeDir
+        }
+        println "QNN includes copied to: ${includeDir.absolutePath}"
+    } else {
+        throw new RuntimeException("Include directory not found in ${sourceDir.absolutePath}")
+    }
+
+    // Copy library files - try both jniLibs and lib directories
+    def sourceLibs = new File(sourceDir, 'jniLibs')
+    if (!sourceLibs.exists()) {
+        sourceLibs = new File(sourceDir, 'lib')
+    }
+    
+    if (sourceLibs.exists()) {
+        copy {
+            from sourceLibs
+            into libDir
+        }
+        println "QNN libs copied to: ${libDir.absolutePath}"
+        
+        // Standalone QNN builds preserve their historical packaging. The
+        // all-vendor split build needs only headers at link time; QNN Runtime
+        // libraries stay in the device resource packages.
+        if (project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN &&
+                !(project.ext.has('BUILD_VENDOR_BACKENDS') &&
+                        project.ext.BUILD_VENDOR_BACKENDS)) {
+            copyQnnLibsToNativePacked(sourceLibs)
+        } else {
+            removeQnnLibsFromNativePacked()
+            removeUnsupportedVendorPluginsFromNativePacked()
+            println "QNN runtime libraries are not packaged in the split vendor AliNN AAR."
+        }
+    } else {
+        println "Warning: No lib/jniLibs directory found in ${sourceDir.absolutePath}"
+    }
+    
+    println "QNN dependencies preparation completed successfully."
+}
+
+def removeQnnLibsFromNativePacked() {
+    def nativePackedLibsDir = new File(buildDir, 'native-packed/native/libs')
+    if (!nativePackedLibsDir.exists()) {
+        return
+    }
+    fileTree(nativePackedLibsDir) {
+        include '**/libQnn*.so'
+    }.files.each { generatedQnnLibrary ->
+        if (!generatedQnnLibrary.delete()) {
+            throw new GradleException(
+                    "Unable to remove stale packaged QNN library: ${generatedQnnLibrary}")
+        }
+    }
+}
+
+def removeUnsupportedVendorPluginsFromNativePacked() {
+    def nativePackedLibsDir = new File(buildDir, 'native-packed/native/libs')
+    if (!nativePackedLibsDir.exists()) {
+        return
+    }
+    fileTree(nativePackedLibsDir) {
+        include 'armeabi-v7a/libMNN_Backend_*.so'
+    }.files.each { generatedVendorPlugin ->
+        if (!generatedVendorPlugin.delete()) {
+            throw new GradleException(
+                    "Unable to remove stale 32-bit vendor plugin: ${generatedVendorPlugin}")
+        }
+    }
+}
+
+def copyQnnLibsToNativePacked(File sourceLibsDir) {
+    // Create native-packed directory structure for QNN .so files
+    def nativePackedLibsDir = new File(buildDir, 'native-packed/native/libs')
+    nativePackedLibsDir.mkdirs()
+    
+    println "Copying QNN .so files to native-packed for AAR packaging..."
+    
+    // Copy all .so files from QNN libs to native-packed
+    sourceLibsDir.eachFileRecurse { file ->
+        if (file.name.endsWith('.so')) {
+            // Determine the ABI directory (arm64-v8a, armeabi-v7a, etc.)
+            def relativePath = sourceLibsDir.toPath().relativize(file.toPath())
+            def targetFile = new File(nativePackedLibsDir, relativePath.toString())
+            
+            // Create parent directories if they don't exist
+            targetFile.parentFile.mkdirs()
+            
+            // Copy the .so file
+            copy {
+                from file
+                into targetFile.parentFile
+            }
+            
+            println "Copied QNN lib: ${file.name} -> ${targetFile.absolutePath}"
+        }
+    }
+    
+    println "QNN .so files copied to native-packed directory"
+}
+
+// Ensure preparation runs before compilation when enabled
+if ((project.ext.has('BUILD_QNN') && project.ext.BUILD_QNN) ||
+        (project.ext.has('BUILD_VENDOR_BACKENDS') && project.ext.BUILD_VENDOR_BACKENDS)) {
+    afterEvaluate {
+        if (tasks.findByName('preBuild')) {
+            preBuild.dependsOn prepareQnnDeps
+        }
+    }
+}
