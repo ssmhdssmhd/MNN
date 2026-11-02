@@ -44,6 +44,8 @@ class MainSettingsFragment : Fragment() {
         const val TAG = "MainSettingsFragment"
         private const val DEBUG_CLICK_COUNT = 5
         private const val DEBUG_CLICK_TIMEOUT = 3000L // 3 seconds
+        private const val CHANGELOG_URL =
+            "https://raw.githubusercontent.com/ssmhdssmhd/MNN/main/CHANGELOG.md"
     }
 
     private var _binding: FragmentMainSettingsBinding? = null
@@ -377,13 +379,17 @@ class MainSettingsFragment : Fragment() {
     }
 
     /**
-     * Load announcement content from the GitHub repository's KZ/gonggao.txt,
-     * falling back to the bundled asset when network is unavailable.
+     * Build the announcement from CHANGELOG.md so it always shows the notes of
+     * the running version. The remote copy is preferred, with the copy bundled
+     * into assets at build time as the offline fallback.
      */
     private fun loadAnnouncementContent(): String {
-        val remoteUrl = "https://raw.githubusercontent.com/ssmhdssmhd/MNN/main/KZ/gonggao.txt"
-        return runCatching {
-            val url = java.net.URL(remoteUrl)
+        val version = runCatching {
+            com.alibaba.mnnllm.android.BuildConfig.APP_RELEASE_VERSION
+        }.getOrElse { AppUtils.getAppVersionName(requireContext()) }
+
+        val remoteChangelog = runCatching {
+            val url = java.net.URL(CHANGELOG_URL)
             val conn = url.openConnection() as java.net.HttpURLConnection
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
@@ -391,10 +397,15 @@ class MainSettingsFragment : Fragment() {
             conn.connect()
             val text = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
-            if (text.isNotBlank()) text else null
-        }.getOrNull() ?: runCatching {
-            requireContext().assets.open("gonggao.txt").bufferedReader().use { it.readText() }
-        }.getOrDefault(getString(R.string.announcement_failed))
+            text.takeIf { it.isNotBlank() }
+        }.getOrNull()
+
+        val changelog = remoteChangelog ?: runCatching {
+            requireContext().assets.open("changelog.md").bufferedReader().use { it.readText() }
+        }.getOrNull()
+
+        return changelog?.let { ChangelogAnnouncement.format(it, version) }
+            ?: getString(R.string.announcement_failed)
     }
 
     private fun setupDebugMode(

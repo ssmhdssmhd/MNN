@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION: "0.0.18"
+  APP_VERSION: "0.0.19"
 
 jobs:
   build_mnn_libs:
@@ -217,6 +217,12 @@ jobs:
           rm -f project/android/build_64/lib/*.so
           cp -r artifacts/mnn_libs_arm64-v8a/. project/android/build_64/lib/
           ls -lh project/android/build_64/lib
+
+      - name: 同步更新日志到内置公告
+        run: |
+          set -e
+          cp CHANGELOG.md apps/Android/MnnLlmChat/app/src/main/assets/changelog.md
+          head -n 12 apps/Android/MnnLlmChat/app/src/main/assets/changelog.md
 
       - name: Gradle 编译 Standard Debug APK
         env:
