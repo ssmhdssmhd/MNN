@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.ActivityStorageManagementBinding
@@ -16,6 +17,9 @@ import com.alibaba.mnnllm.android.modelsettings.ModelConfig
 import com.alibaba.mnnllm.android.utils.MmapUtils
 import com.alibaba.mls.api.ModelStorageConfig
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -260,7 +264,7 @@ class StorageManagementActivity : AppCompatActivity() {
         binding.tvModelStoragePath.text = ModelStorageConfig.getModelRootPath(this)
     }
 
-    /** Validate and persist a model storage path. Returns true on success. */
+    /** Validate and persist a model storage path, migrating existing models to the new location. */
     private fun applyModelStoragePath(path: String): Boolean {
         val dir = File(path)
         val valid = try {
@@ -275,9 +279,95 @@ class StorageManagementActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.storage_model_path_invalid), Toast.LENGTH_SHORT).show()
             return false
         }
-        ModelStorageConfig.setModelRootPath(this, dir.absolutePath)
-        onModelStoragePathChanged()
+
+        val newRoot = dir.absoluteFile
+        val oldRoot = ModelStorageConfig.getModelRootDir(this)
+        if (oldRoot.absolutePath == newRoot.absolutePath) {
+            onModelStoragePathChanged()
+            return true
+        }
+
+        Toast.makeText(this, R.string.storage_model_path_migrating, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                migrateModelRoot(oldRoot, newRoot)
+            }
+            ModelStorageConfig.setModelRootPath(this@StorageManagementActivity, newRoot.absolutePath)
+            binding.editCustomPath.text?.clear()
+            Toast.makeText(
+                this@StorageManagementActivity,
+                getString(R.string.storage_model_path_migrated, result.movedFiles, formatSize(result.movedBytes)),
+                Toast.LENGTH_LONG
+            ).show()
+            refreshModelStoragePath()
+            loadSummary()
+            refreshList()
+        }
         return true
+    }
+
+    private data class MigrationResult(val movedFiles: Int, val movedBytes: Long, val failed: Int)
+
+    /**
+     * Move every model directory from the old root into the new root so that already-downloaded
+     * models stay discoverable after the storage path changes. Falls back to copy+delete when
+     * a direct rename is not possible (e.g. crossing storage volumes).
+     */
+    private fun migrateModelRoot(oldRoot: File, newRoot: File): MigrationResult {
+        var movedFiles = 0
+        var movedBytes = 0L
+        var failed = 0
+
+        val children = oldRoot.listFiles() ?: return MigrationResult(0, 0, 0)
+        for (child in children) {
+            try {
+                val target = File(newRoot, child.name)
+                if (!target.exists()) {
+                    if (child.renameTo(target)) {
+                        movedFiles += countFiles(child)
+                        movedBytes += sizeOf(child)
+                        continue
+                    }
+                }
+                // Target exists or rename failed: merge contents then remove the source
+                val stats = mergeRecursively(child, target)
+                movedFiles += stats.first
+                movedBytes += stats.second
+                child.deleteRecursively()
+            } catch (e: Exception) {
+                failed += 1
+            }
+        }
+        return MigrationResult(movedFiles, movedBytes, failed)
+    }
+
+    private fun mergeRecursively(src: File, dst: File): Pair<Int, Long> {
+        if (src.isDirectory) {
+            var files = 0
+            var bytes = 0L
+            dst.mkdirs()
+            src.listFiles()?.forEach { entry ->
+                val stats = mergeRecursively(entry, File(dst, entry.name))
+                files += stats.first
+                bytes += stats.second
+            }
+            return files to bytes
+        }
+        dst.parentFile?.mkdirs()
+        if (src.copyTo(dst, overwrite = true).exists()) {
+            return 1 to src.length()
+        }
+        return 0 to 0L
+    }
+
+    private fun countFiles(file: File): Int {
+        if (!file.isDirectory) return 1
+        return file.listFiles()?.sumOf { countFiles(it) } ?: 0
+    }
+
+    private fun sizeOf(file: File): Long {
+        if (!file.isDirectory) return file.length()
+        return file.listFiles()?.sumOf { sizeOf(it) } ?: 0L
     }
 
     private fun onModelStoragePathChanged() {

@@ -183,6 +183,8 @@
     <string name="storage_model_path_reset">Reset to default</string>
     <string name="storage_model_path_invalid">Path does not exist or is not writable</string>
     <string name="storage_model_path_applied">Model storage path updated</string>
+    <string name="storage_model_path_migrating">Moving existing models to the new path...</string>
+    <string name="storage_model_path_migrated">Moved %1$d file(s) (%2$s) to the new path</string>
     <string name="storage_model_path_hint">Enter an absolute directory path</string>
     <string name="storage_model_path_note">New downloads are saved here. Place model folders (containing config.json) directly under this path to use them.</string>
     <string name="storage_model_path_already_default">Already using the default path</string>
@@ -207,12 +209,20 @@
     <string name="api_service_status_running">Running</string>
     <string name="api_service_stopped">Stopped</string>
     <string name="api_service_start">Start</string>
+    <string name="api_service_starting">Starting API service, loading model...</string>
     <string name="api_service_restart">Restart</string>
     <string name="api_service_started">API service started</string>
     <string name="api_service_stopped_msg">API service stopped</string>
     <string name="api_service_restarted">API service restarted</string>
 
     <string name="developer_info">Developer Info</string>
+    <string name="auto_clear_logs_on_start">Auto-clear logs on start</string>
+    <string name="online_search_action">Search online sources</string>
+    <string name="online_search_title">Online search: %1$s</string>
+    <string name="online_search_loading">Searching HuggingFace / ModelScope / Modelers...</string>
+    <string name="online_search_empty">No matching models found</string>
+    <string name="online_search_hint">These are source-platform models, not MNN format. Tap to open the model page.</string>
+    <string name="online_search_need_query">Enter a keyword in the search box first</string>
     <string name="announcement">Announcement</string>
     <string name="announcement_title">Announcement</string>
     <string name="announcement_loading">Loading announcement...</string>

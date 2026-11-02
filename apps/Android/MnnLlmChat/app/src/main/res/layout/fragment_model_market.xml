@@ -99,7 +99,18 @@
             android:layout_below="@id/tv_no_filtered_models_message"
             android:minWidth="150dp"
             />
-            
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_search_online"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_centerHorizontal="true"
+            android:layout_below="@id/btn_clear_filters"
+            android:layout_marginTop="12dp"
+            android:text="@string/online_search_action"
+            android:minWidth="150dp" />
+
     </RelativeLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

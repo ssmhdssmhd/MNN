@@ -27,6 +27,7 @@ import com.alibaba.mnnllm.android.privacy.PrivacyPolicyManager
 import com.alibaba.mnnllm.android.update.UpdateChecker
 import com.alibaba.mnnllm.android.utils.AppUtils
 import com.alibaba.mnnllm.android.utils.GithubUtils
+import com.alibaba.mnnllm.android.utils.TimberConfig
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
@@ -87,6 +88,7 @@ class MainSettingsFragment : Fragment() {
         }
 
         setupDownloadProvider(sharedPreferences)
+        setupAutoClearLogs()
         setupVoiceModelManagement()
         setupStorageManagement()
 
@@ -247,6 +249,13 @@ class MainSettingsFragment : Fragment() {
                 }
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
+        }
+    }
+
+    private fun setupAutoClearLogs() {
+        binding.itemAutoClearLogs.isChecked = TimberConfig.isAutoClearLogsOnStart()
+        binding.itemAutoClearLogs.setOnCheckedChangeListener { isChecked ->
+            TimberConfig.setAutoClearLogsOnStart(isChecked)
         }
     }
 

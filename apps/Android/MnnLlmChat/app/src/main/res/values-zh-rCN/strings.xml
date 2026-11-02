@@ -175,6 +175,8 @@
     <string name="storage_model_path_reset">恢复默认</string>
     <string name="storage_model_path_invalid">路径不存在或不可写</string>
     <string name="storage_model_path_applied">模型存储路径已更新</string>
+    <string name="storage_model_path_migrating">正在迁移已有模型到新路径...</string>
+    <string name="storage_model_path_migrated">已迁移 %1$d 个文件（%2$s）到新路径</string>
     <string name="storage_model_path_hint">输入绝对目录路径</string>
     <string name="storage_model_path_note">新下载的模型会保存到此处。将包含 config.json 的模型文件夹直接放在该路径下即可被调用。</string>
     <string name="storage_model_path_already_default">当前已是默认路径</string>
@@ -199,10 +201,27 @@
     <string name="api_service_status_running">运行中</string>
     <string name="api_service_stopped">已停止</string>
     <string name="api_service_start">启动</string>
+    <string name="api_service_starting">正在启动 API 服务，加载模型中...</string>
     <string name="api_service_restart">重启</string>
     <string name="api_service_started">API 服务已启动</string>
     <string name="api_service_stopped_msg">API 服务已停止</string>
     <string name="api_service_restarted">API 服务已重启</string>
+
+    <string name="developer_info">开发者信息</string>
+    <string name="auto_clear_logs_on_start">启动时自动清空日志</string>
+    <string name="online_search_action">在下载源中搜索</string>
+    <string name="online_search_title">在线搜索：%1$s</string>
+    <string name="online_search_loading">正在搜索 HuggingFace / 魔搭 / 魔乐...</string>
+    <string name="online_search_empty">未找到匹配的模型</string>
+    <string name="online_search_hint">这些是下载源平台的模型，非 MNN 格式，点击可在浏览器中打开模型页。</string>
+    <string name="online_search_need_query">请先在搜索框输入关键词</string>
+    <string name="announcement">公告</string>
+    <string name="announcement_title">公告</string>
+    <string name="announcement_loading">正在加载公告...</string>
+    <string name="announcement_failed">公告加载失败</string>
+    <string name="developer_info_title">开发者信息</string>
+    <string name="developer_info_content">开发者：ssmhdssmhd\nGitHub：https://github.com/ssmhdssmhd/MNN\n仓库：MNN（基于阿里 MNN 框架二次开发）\n\n本应用基于 Alibaba MNN 框架构建。\n如有问题或建议，欢迎前往 GitHub 仓库提交 Issue。</string>
+    <string name="visit_repo">访问仓库</string>
     <string name="api_console_title">API服务控制台</string>
     <string name="api_port">端口</string>
     <string name="api_bind_ip">绑定IP地址</string>

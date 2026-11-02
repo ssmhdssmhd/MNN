@@ -120,6 +120,7 @@ object TimberConfig {
     private const val LOG_DIR_NAME = "logs"
     private const val PREFS_NAME = "MnnLlmPrefs"
     private const val KEY_FILE_LOGGING_ENABLED = "file_logging_enabled"
+    private const val KEY_AUTO_CLEAR_LOGS = "auto_clear_logs_on_start"
 
     private var fileLoggingTree: FileLoggingTree? = null
     private var appContext: android.content.Context? = null
@@ -136,7 +137,11 @@ object TimberConfig {
         // Check preference for file logging
         val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
         val isFileLoggingEnabled = prefs.getBoolean(KEY_FILE_LOGGING_ENABLED, false)
-        
+
+        // Clear leftover logs from the previous run to keep the log dir bounded (default on)
+        if (prefs.getBoolean(KEY_AUTO_CLEAR_LOGS, true)) {
+            clearLogs()
+        }
         if (isFileLoggingEnabled) {
             enableFileLogging(context)
         }
@@ -170,6 +175,32 @@ object TimberConfig {
         val context = appContext ?: return false
         val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
         return prefs.getBoolean(KEY_FILE_LOGGING_ENABLED, false)
+    }
+
+    /** Whether logs are cleared automatically on every app start. Defaults to true. */
+    fun isAutoClearLogsOnStart(): Boolean {
+        val context = appContext ?: return true
+        val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_AUTO_CLEAR_LOGS, true)
+    }
+
+    /** Toggle automatic log clearing on app start. */
+    fun setAutoClearLogsOnStart(enabled: Boolean) {
+        val context = appContext ?: return
+        val prefs = context.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_AUTO_CLEAR_LOGS, enabled).apply()
+        Timber.tag("TimberConfig").d("Auto clear logs on start set to: $enabled")
+    }
+
+    /** Delete all rotated log files under the log directory. */
+    fun clearLogs() {
+        val context = appContext ?: return
+        try {
+            val logDir = java.io.File(context.filesDir, LOG_DIR_NAME)
+            logDir.listFiles()?.forEach { it.delete() }
+        } catch (e: Exception) {
+            Timber.tag("TimberConfig").e(e, "Failed to clear logs")
+        }
     }
     
     private fun enableFileLogging(context: android.content.Context) {

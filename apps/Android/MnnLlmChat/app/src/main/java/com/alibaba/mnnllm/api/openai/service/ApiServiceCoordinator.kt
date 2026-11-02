@@ -2,6 +2,8 @@ package com.alibaba.mnnllm.api.openai.service
 
 import android.content.Context
 import com.alibaba.mnnllm.android.llm.LlmSession
+import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import com.alibaba.mnnllm.api.openai.manager.ApiNotificationManager
 import com.alibaba.mnnllm.api.openai.network.application.OpenAIApplication
@@ -133,7 +135,24 @@ class ApiServiceCoordinator(private val context: Context) {
             return ensureRuntimeSessionForModel(modelId)
         }
 
+        // No explicit model requested and no session loaded: fall back to a model chosen
+        // for the API service (or the first available local model) so Start does not fail.
+        val fallbackModelId = resolveFallbackModelId()
+        if (fallbackModelId != null) {
+            Timber.Forest.tag(TAG).i("No active session, loading fallback model for API start: %s", fallbackModelId)
+            return ensureRuntimeSessionForModel(fallbackModelId)
+        }
+
         return runtime.getActiveSession() ?: chatSessionProvider.getLlmSession()
+    }
+
+    /** Pick a model to load when the user starts the service without an active session. */
+    private fun resolveFallbackModelId(): String? {
+        val selected = MainSettings.getApiSelectedModelIds(context).firstOrNull()
+        if (!selected.isNullOrBlank()) return selected
+        return ModelListManager.getCurrentModels()
+            ?.firstOrNull { it.modelItem.modelId != null }
+            ?.modelItem?.modelId
     }
 
     private fun ensureRuntimeSessionForModel(modelId: String): LlmSession? {

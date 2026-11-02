@@ -284,6 +284,15 @@ class ModelMarketFragment : Fragment(), ModelMarketItemListener, Searchable {
         clearFiltersButton.setOnClickListener {
             clearAllFilters()
         }
+        emptyView.findViewById<View>(R.id.btn_search_online).setOnClickListener {
+            val query = currentSearchQuery.trim()
+            if (query.isEmpty()) {
+                Toast.makeText(requireContext(), R.string.online_search_need_query, Toast.LENGTH_SHORT).show()
+            } else {
+                OnlineModelSearchDialogFragment.newInstance(query)
+                    .show(childFragmentManager, "OnlineModelSearch")
+            }
+        }
     }
 
     private fun setupLoadingView() {

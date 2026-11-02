@@ -88,20 +88,21 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     private fun setupServiceControl() {
         refreshServiceStatus()
+        // Poll status: model loading on start can take a while, so keep the label in sync
+        lifecycleScope.launch {
+            while (true) {
+                delay(1000)
+                if (!isAdded) break
+                refreshServiceStatus()
+            }
+        }
 
         binding.btnServiceStart.setOnClickListener {
             lifecycleScope.launch {
                 withContext(Dispatchers.IO) {
                     ApiServiceManager.startApiService(requireContext())
                 }
-                delay(300)
-                refreshServiceStatus()
-                val running = ApiServiceManager.isApiServiceRunning()
-                Toast.makeText(
-                    requireContext(),
-                    if (running) R.string.api_service_started else R.string.api_service_start_failed,
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(requireContext(), R.string.api_service_starting, Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -123,8 +124,6 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                     delay(500)
                     ApiServiceManager.startApiService(requireContext())
                 }
-                delay(300)
-                refreshServiceStatus()
                 Toast.makeText(requireContext(), R.string.api_service_restarted, Toast.LENGTH_SHORT).show()
             }
         }
