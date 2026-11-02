@@ -17,6 +17,8 @@ object ApiServerConfig {
     private const val KEY_AUTH_ENABLED = "auth_enabled"
     private const val KEY_API_KEY = "api_key"
     private const val KEY_USE_HTTPS_URL = "use_https_url"
+    private const val KEY_RESPONSES_API_ENABLED = "responses_api_enabled"
+    private const val KEY_PROMPT_CACHE_KEY_ENABLED = "prompt_cache_key_enabled"
     private const val KEY_CONFIG_INITIALIZED = "config_initialized"
     private const val KEY_CONFIG_VERSION = "config_version"
 
@@ -110,6 +112,16 @@ object ApiServerConfig {
         return getPreferences(context).getBoolean(KEY_USE_HTTPS_URL, DEFAULT_USE_HTTPS_URL)
     }
 
+    /** Whether the OpenAI-compatible /v1/responses endpoint is enabled. */
+    fun isResponsesApiEnabled(context: Context): Boolean {
+        return getPreferences(context).getBoolean(KEY_RESPONSES_API_ENABLED, false)
+    }
+
+    /** Whether prompt_cache_key based cache routing is enabled (third-party compatible services only). */
+    fun isPromptCacheKeyEnabled(context: Context): Boolean {
+        return getPreferences(context).getBoolean(KEY_PROMPT_CACHE_KEY_ENABLED, false)
+    }
+
     /**
      * getAPIkey*/
     fun getApiKey(context: Context): String {
@@ -134,7 +146,9 @@ object ApiServerConfig {
         corsOrigins: String,
         authEnabled: Boolean,
         apiKey: String,
-        useHttpsUrl: Boolean
+        useHttpsUrl: Boolean,
+        responsesApiEnabled: Boolean = isResponsesApiEnabled(context),
+        promptCacheKeyEnabled: Boolean = isPromptCacheKeyEnabled(context)
     ) {
         val prefs = getPreferences(context)
         prefs.edit().apply {
@@ -145,6 +159,8 @@ object ApiServerConfig {
             putBoolean(KEY_AUTH_ENABLED, authEnabled)
             putString(KEY_API_KEY, apiKey)
             putBoolean(KEY_USE_HTTPS_URL, useHttpsUrl)
+            putBoolean(KEY_RESPONSES_API_ENABLED, responsesApiEnabled)
+            putBoolean(KEY_PROMPT_CACHE_KEY_ENABLED, promptCacheKeyEnabled)
             putBoolean(KEY_CONFIG_INITIALIZED, true)
         }.apply()
 
@@ -176,6 +192,8 @@ object ApiServerConfig {
             putBoolean(KEY_AUTH_ENABLED, DEFAULT_AUTH_ENABLED)
             putString(KEY_API_KEY, defaultApiKey)
             putBoolean(KEY_USE_HTTPS_URL, DEFAULT_USE_HTTPS_URL)
+            putBoolean(KEY_RESPONSES_API_ENABLED, false)
+            putBoolean(KEY_PROMPT_CACHE_KEY_ENABLED, false)
             putBoolean(KEY_CONFIG_INITIALIZED, true)
             putInt(KEY_CONFIG_VERSION, CURRENT_CONFIG_VERSION)
         }.apply()

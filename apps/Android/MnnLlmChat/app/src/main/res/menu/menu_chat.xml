@@ -36,20 +36,5 @@
         android:id="@+id/menu_item_config_info"
         android:title="@string/config_info"
         app:showAsAction="never" />
-    
-    <item
-        android:id="@+id/menu_item_api_settings"
-        android:title="@string/api_settings"
-        app:showAsAction="never" />
-    
-    <item
-        android:id="@+id/menu_item_api_console"
-        android:title="@string/api_console"
-        app:showAsAction="never" />
-<!--    <item-->
-<!--        android:id="@+id/menu_item_sampler_spinner"-->
-<!--        android:title="@string/sampler"-->
-<!--        app:showAsAction="always"-->
-<!--        android:textColor="#FFFFFF"-->
-<!--        app:actionLayout="@layout/item_sampler_spinner" />-->
+
 </menu>

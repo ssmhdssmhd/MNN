@@ -209,6 +209,13 @@
 
     <string name="developer_info">开发者信息</string>
     <string name="auto_clear_logs_on_start">启动时自动清空日志</string>
+    <string name="api_compat_settings">API 兼容性设置</string>
+    <string name="enable_responses_api">Response API（新版）</string>
+    <string name="enable_responses_api_desc">开启后走 /v1/responses 端点；确认接入的客户端支持新版协议后再开启。</string>
+    <string name="use_prompt_cache_key">OpenAI 兼容缓存路由（prompt_cache_key）</string>
+    <string name="use_prompt_cache_key_desc">仅第三方兼容服务需要；OpenAI 官方接口不识别该字段，保持关闭。</string>
+    <string name="open_service_in_browser">在浏览器中打开测试页</string>
+    <string name="browser_open_failed">未找到可用浏览器</string>
     <string name="online_search_action">在下载源中搜索</string>
     <string name="online_search_title">在线搜索：%1$s</string>
     <string name="online_search_loading">正在搜索 HuggingFace / 魔搭 / 魔乐...</string>

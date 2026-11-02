@@ -37,8 +37,6 @@ import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.android.mainsettings.MainSettings.isApiServiceEnabled
 import com.alibaba.mnnllm.android.modelsettings.SettingsBottomSheetFragment
 import com.alibaba.mnnllm.android.modelsettings.DiffusionSettingsBottomSheetFragment
-import com.alibaba.mnnllm.api.openai.ui.ApiSettingsBottomSheetFragment
-import com.alibaba.mnnllm.api.openai.ui.ApiConsoleBottomSheetFragment
 import com.alibaba.mnnllm.android.utils.AudioPlayService
 import com.alibaba.mnnllm.android.model.ModelTypeUtils
 import com.alibaba.mnnllm.android.model.ModelUtils
@@ -567,12 +565,6 @@ class ChatActivity : AppCompatActivity() {
                 chatSession!!.reset()
                 return@start handleSendMessage(createUserMessage(message))
             })
-        } else if (item.itemId == R.id.menu_item_api_settings) {
-            ApiSettingsBottomSheetFragment().show(supportFragmentManager, "ApiSettingsBottomSheetFragment")
-            return true
-        } else if (item.itemId == R.id.menu_item_api_console) {
-            ApiConsoleBottomSheetFragment.newInstance(this).show(supportFragmentManager, "ApiConsoleBottomSheetFragment")
-            return true
         } else if (item.itemId == R.id.menu_item_config_info) {
             showConfigInfo()
             return true

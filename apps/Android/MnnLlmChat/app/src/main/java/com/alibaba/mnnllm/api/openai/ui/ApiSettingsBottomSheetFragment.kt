@@ -2,8 +2,10 @@ package com.alibaba.mnnllm.api.openai.ui
 
 import android.app.Dialog
 import android.content.Context
+import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -42,6 +44,8 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
     private var authEnabled: Boolean = false
     private var apiKey: String = ""
     private var useHttpsUrl: Boolean = false
+    private var responsesApiEnabled: Boolean = false
+    private var promptCacheKeyEnabled: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -140,6 +144,8 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         authEnabled = ApiServerConfig.isAuthEnabled(context)
         apiKey = ApiServerConfig.getApiKey(context)
         useHttpsUrl = ApiServerConfig.useHttpsUrl(context)
+        responsesApiEnabled = ApiServerConfig.isResponsesApiEnabled(context)
+        promptCacheKeyEnabled = ApiServerConfig.isPromptCacheKeyEnabled(context)
 
         //Update UI
         binding.editPort.setText(currentPort.toString())
@@ -149,10 +155,41 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         binding.switchAuth.isChecked = authEnabled
         binding.editApiKey.setText(apiKey)
         binding.switchUseHttpsUrl.isChecked = useHttpsUrl
+        binding.switchResponsesApi.isChecked = responsesApiEnabled
+        binding.switchPromptCacheKey.isChecked = promptCacheKeyEnabled
 
         updateCorsVisibility()
         updateAuthVisibility()
         updateAccessUrl()
+    }
+
+    /** Ensure the service is running, then open the built-in test page in a browser. */
+    private fun openServiceInBrowser() {
+        if (binding.textAccessUrl.text.isNullOrBlank()) {
+            updateAccessUrl()
+        }
+        if (ApiServiceManager.isApiServiceRunning()) {
+            launchBrowser()
+            return
+        }
+        Toast.makeText(requireContext(), R.string.api_service_starting, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                ApiServiceManager.startApiService(requireContext())
+            }
+            delay(1500)
+            if (isAdded) launchBrowser()
+        }
+    }
+
+    private fun launchBrowser() {
+        val base = binding.textAccessUrl.text.toString().removeSuffix("/v1")
+        val url = if (base.isBlank()) "http://127.0.0.1:$currentPort" else base
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$url/")))
+        }.onFailure {
+            Toast.makeText(requireContext(), R.string.browser_open_failed, Toast.LENGTH_SHORT).show()
+        }
     }
 
     /** 显示当前配置的完整访问地址。监听所有网卡(0.0.0.0)时用设备局域网IP，便于浏览器直接打开。 */
@@ -196,6 +233,18 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         binding.switchUseHttpsUrl.setOnCheckedChangeListener { _, isChecked ->
             useHttpsUrl = isChecked
             updateAccessUrl()
+        }
+
+        binding.switchResponsesApi.setOnCheckedChangeListener { _, isChecked ->
+            responsesApiEnabled = isChecked
+        }
+
+        binding.switchPromptCacheKey.setOnCheckedChangeListener { _, isChecked ->
+            promptCacheKeyEnabled = isChecked
+        }
+
+        binding.btnOpenInBrowser.setOnClickListener {
+            openServiceInBrowser()
         }
 
         binding.textAccessUrl.setOnClickListener {
@@ -282,7 +331,9 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             corsOrigins = corsOrigins,
             authEnabled = authEnabled,
             apiKey = apiKey,
-            useHttpsUrl = useHttpsUrl
+            useHttpsUrl = useHttpsUrl,
+            responsesApiEnabled = responsesApiEnabled,
+            promptCacheKeyEnabled = promptCacheKeyEnabled
         )
 
         //Commented out but keep these two Toasts, can be used for testing
