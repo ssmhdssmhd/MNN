@@ -18,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
-import com.alibaba.mls.api.ApplicationProvider
 import com.alibaba.mnnllm.android.llm.ChatSession
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.BuildConfig
@@ -48,7 +47,6 @@ import com.alibaba.mnnllm.android.chat.voice.VoiceModelMarketBottomSheet
 import com.alibaba.mnnllm.android.modelist.ModelItemWrapper
 import com.alibaba.mnnllm.android.utils.CrashReportContext
 import com.alibaba.mnnllm.android.utils.ConfigInfoDialog
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -650,9 +648,8 @@ class ChatActivity : AppCompatActivity() {
         if (::chatPresenter.isInitialized) {
             chatPresenter.destroy()
         }
-        MainScope().launch {
-            ApiServiceManager.stopApiService(ApplicationProvider.get())
-        }
+        // The API runs in a foreground service: leaving the chat screen must not stop it,
+        // otherwise clients lose the endpoint as soon as the user navigates away.
     }
 
     private fun saveInterruptedResponseIfNeeded() {

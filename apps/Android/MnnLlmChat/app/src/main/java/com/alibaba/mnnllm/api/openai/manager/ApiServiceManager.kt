@@ -34,13 +34,21 @@ object ApiServiceManager {
         }
     }
 
-    /** * restartAPIservice * @param context context * @return whethersuccessrestart
-     * Note: Do not call from main thread. Use lifecycleScope.launch { stop+delay+start } instead. */
+    /** * restartAPIservice * @param context context * @return whethersuccessrestart */
     fun restartApiService(context: Context): Boolean {
         return try {
-            stopApiService(context)
-            Thread.sleep(500)
-            startApiService(context)
+            // Restart inside the running service: recreating the whole service races with the
+            // asynchronous Netty shutdown and can leave the port briefly occupied.
+            val service = OpenAIService.getInstance()
+            if (service != null) {
+                service.restartServer()
+                Timber.tag(TAG).i("API service restart requested in place")
+                true
+            } else {
+                OpenAIService.startService(context)
+                Timber.tag(TAG).i("API service was not running, start requested")
+                true
+            }
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to restart API service")
             false

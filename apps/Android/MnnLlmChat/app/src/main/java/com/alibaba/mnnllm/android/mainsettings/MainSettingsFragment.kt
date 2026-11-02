@@ -37,7 +37,6 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.delay
 
 class MainSettingsFragment : Fragment() {
 
@@ -226,12 +225,10 @@ class MainSettingsFragment : Fragment() {
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     ApiServerConfig.resetToDefault(requireContext())
                     if (MainSettings.isApiServiceEnabled(requireContext()) && ApiServiceManager.isApiServiceRunning()) {
-                        // Run stop/start off main thread to avoid ANR
+                        // Run restart off main thread to avoid ANR
                         lifecycleScope.launch {
                             withContext(Dispatchers.IO) {
-                                ApiServiceManager.stopApiService(requireContext())
-                                delay(500)
-                                ApiServiceManager.startApiService(requireContext())
+                                ApiServiceManager.restartApiService(requireContext())
                             }
                             Toast.makeText(
                                 requireContext(),

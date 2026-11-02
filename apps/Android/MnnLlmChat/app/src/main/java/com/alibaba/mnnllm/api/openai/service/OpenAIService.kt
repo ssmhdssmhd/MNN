@@ -209,6 +209,14 @@ class OpenAIService : Service() {
     fun getServerPort(): Int? = coordinator.getServerPort()
     
     fun isServerRunning(): Boolean = coordinator.isServerRunning
+
+    /** Restart the embedded server in place (used after config changes). */
+    fun restartServer(modelId: String? = null) {
+        serviceScope.launch {
+            val success = coordinator.restartServer(modelId ?: currentModelId)
+            Timber.tag(TAG).i("Restart server result: %s", success)
+        }
+    }
     
     fun getCurrentModelId(): String? = currentModelId
 

@@ -57,7 +57,8 @@ class ApiServiceCoordinator(private val context: Context) {
                 return false
             }
 
-            if (application != null && _isServerRunning) {
+            val existing = application
+            if (existing != null && _isServerRunning && existing.isRunning()) {
                 if (!modelId.isNullOrBlank()) {
                     val switchedSession = resolveRuntimeSessionForStart(modelId)
                     if (switchedSession == null) {
@@ -70,6 +71,15 @@ class ApiServiceCoordinator(private val context: Context) {
                     Timber.Forest.tag(TAG).i("Runtime session ensured while server running, modelId=%s", modelId)
                 }
                 return true
+            }
+
+            // The previous instance may have died (bind failure, system reclaim). Clear it first.
+            if (existing != null) {
+                Timber.Forest.tag(TAG).w("Discarding stale server instance before starting")
+                application = null
+                _isServerRunning = false
+                existing.stopBlocking()
+                com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
             }
 
             return runCatching {
@@ -89,7 +99,14 @@ class ApiServiceCoordinator(private val context: Context) {
                 }
 
                 val app = OpenAIApplication(networkServiceScope, context)
-                app.start()
+                if (!app.start()) {
+                    Timber.Forest.tag(TAG).e("Failed to start server: %s", app.lastStartError)
+                    notificationManager?.updateNotification(
+                        context.getString(R.string.api_service_start_failed),
+                        context.getString(R.string.api_service_error, app.lastStartError ?: "unknown")
+                    )
+                    return false
+                }
                 application = app
                 bootstrapCount += 1
 
@@ -113,6 +130,29 @@ class ApiServiceCoordinator(private val context: Context) {
         }
     }
 
+    /**
+     * Restart the embedded server inside the running service.
+     * Stopping and starting the whole service races with the asynchronous Netty shutdown
+     * (the port is still bound), which used to leave the API silently dead after settings save.
+     */
+    fun restartServer(modelId: String? = null): Boolean {
+        synchronized(stateLock) {
+            if (!_isInitialized) {
+                Timber.Forest.tag(TAG).w("Coordinator not initialized")
+                return false
+            }
+            val existing = application
+            application = null
+            _isServerRunning = false
+            if (existing != null) {
+                Timber.Forest.tag(TAG).i("Restarting server: stopping current instance first")
+                existing.stopBlocking()
+            }
+            com.alibaba.mnnllm.api.openai.manager.ServerEventManager.getInstance().resetRuntimeState()
+            return startServer(modelId)
+        }
+    }
+
     private fun resolveRuntimeSessionForStart(modelId: String?): LlmSession? {
         val runtime = ServiceLocator.getLlmRuntimeController()
         val chatSessionProvider = ServiceLocator.getChatSessionProvider()
@@ -132,14 +172,16 @@ class ApiServiceCoordinator(private val context: Context) {
         }
 
         if (!modelId.isNullOrBlank()) {
-            return ensureRuntimeSessionForModel(modelId)
+            val ensured = ensureRuntimeSessionForModel(modelId)
+            if (ensured != null) return ensured
+            Timber.Forest.tag(TAG).w("Requested model failed to load, trying fallback: %s", modelId)
         }
 
-        // No explicit model requested and no session loaded: fall back to a model chosen
-        // for the API service (or the first available local model) so Start does not fail.
+        // Fall back to a model chosen for the API service (or the first available local model)
+        // so Start does not fail just because one model is missing or cannot be loaded.
         val fallbackModelId = resolveFallbackModelId()
-        if (fallbackModelId != null) {
-            Timber.Forest.tag(TAG).i("No active session, loading fallback model for API start: %s", fallbackModelId)
+        if (fallbackModelId != null && fallbackModelId != modelId) {
+            Timber.Forest.tag(TAG).i("Loading fallback model for API start: %s", fallbackModelId)
             return ensureRuntimeSessionForModel(fallbackModelId)
         }
 

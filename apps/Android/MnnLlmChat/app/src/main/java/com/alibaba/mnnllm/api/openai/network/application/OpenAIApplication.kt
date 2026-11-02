@@ -11,12 +11,12 @@ import io.ktor.server.netty.Netty
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 import timber.log.Timber
-import java.net.InetSocketAddress
-import java.net.Socket
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.api.openai.manager.ServerEventMonitor
@@ -28,7 +28,11 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
     private val mutex = Mutex()
     private var server: EmbeddedServer<*, *>? = null
     private val serverEventManager = ServerEventManager.getInstance()
-    
+
+    /** Last failure reason, exposed so callers can show an accurate error message. */
+    var lastStartError: String? = null
+        private set
+
     init {
         //initializeconfig
         ApiServerConfig.initializeConfig(context)
@@ -36,37 +40,70 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
         LogCollector.getInstance().initialize()
     }
 
-    fun start() {
-
+    /**
+     * Start the embedded server.
+     *
+     * Retries a few times: a restart usually stops the previous Netty instance asynchronously,
+     * so the port may still be busy for a short while. Returns false when the server could not
+     * reach the running state, instead of silently swallowing the failure.
+     */
+    fun start(): Boolean {
         if (server != null) {
             Timber.tag("Network").w("Server is already running")
-            return
+            return true
         }
 
-        try {
-            //fromconfigingetportandIPaddress
-            val port = ApiServerConfig.getPort(context)
-            val ipAddress = ApiServerConfig.getIpAddress(context)
-            
-            Timber.tag("Network").i("Starting Ktor Server on $ipAddress:$port")
-            Timber.tag("Network").d("Checking port availability...")
-            
-            Timber.tag("Network").i("Starting Ktor Server on $ipAddress:$port")
-            checkPortAvailability(port)
+        lastStartError = null
+        val port = ApiServerConfig.getPort(context)
+        val ipAddress = ApiServerConfig.getIpAddress(context)
 
-            server = lifecycleScope.embeddedServer(
-                Netty,
-                port = port,
-                host = ipAddress,
-                module = { module(context, ipAddress, port) }
-            ).start(wait = false) //notblockcurrentcoroutine
-            
-            Timber.tag("Network").i("Server started successfully on $ipAddress:$port")
+        for (attempt in 1..MAX_START_ATTEMPTS) {
+            try {
+                if (attempt > 1) Thread.sleep(START_RETRY_DELAY_MS)
+                serverEventManager.resetRuntimeState()
+                Timber.tag("Network").i("Starting Ktor Server on $ipAddress:$port (attempt $attempt)")
 
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to start Ktor server")
-            stop()
+                server = lifecycleScope.embeddedServer(
+                    Netty,
+                    port = port,
+                    host = ipAddress,
+                    module = { module(context, ipAddress, port) }
+                ).start(wait = false) //notblockcurrentcoroutine
+
+                if (waitUntilRunning(START_VERIFY_TIMEOUT_MS)) {
+                    Timber.tag("Network").i("Server started successfully on $ipAddress:$port")
+                    return true
+                }
+                lastStartError = "Server did not reach running state on $ipAddress:$port"
+                Timber.tag("Network").e(lastStartError)
+                stopInternalQuietly()
+            } catch (e: Exception) {
+                lastStartError = e.message ?: e.javaClass.simpleName
+                Timber.e(e, "Failed to start Ktor server (attempt $attempt)")
+                stopInternalQuietly()
+            }
         }
+
+        Timber.tag("Network").e("Server start failed after $MAX_START_ATTEMPTS attempts: $lastStartError")
+        return false
+    }
+
+    private fun waitUntilRunning(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (serverEventManager.isServerRunning()) return true
+            Thread.sleep(50)
+        }
+        return serverEventManager.isServerRunning()
+    }
+
+    private fun stopInternalQuietly() {
+        runCatching {
+            server?.stop(gracePeriodMillis = 0, timeoutMillis = 1000)
+        }.onFailure { error ->
+            Timber.tag("Network").w(error, "Failed to release failed server instance")
+        }
+        server = null
     }
 
 
@@ -101,18 +138,18 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
 
     fun getPort(): Int = ApiServerConfig.getPort(context)
 
-    private fun checkPortAvailability(port: Int): Boolean {
-        return try {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress("localhost", port), 1000)
-                Timber.tag("Network").e("Port $port 被使用")
-                false //alreadyoccupied
-
+    /** Block until the current server is fully stopped (call from a background thread only). */
+    fun stopBlocking() {
+        runCatching {
+            runBlocking {
+                withTimeoutOrNull(7000L) {
+                    mutex.withLock { stopInternal() }
+                }
             }
-        } catch (e: Exception) {
-            Timber.tag("Network").i("Port $port 可用")
-            true //available
+        }.onFailure { error ->
+            Timber.tag("Network").w(error, "Blocking stop failed")
         }
+        server = null
     }
 
 
@@ -133,6 +170,12 @@ class OpenAIApplication(private val lifecycleScope: CoroutineScope, private val 
             server = null
             Timber.tag("Network").i("Server stopped completely")
         }
+    }
+
+    private companion object {
+        private const val MAX_START_ATTEMPTS = 5
+        private const val START_RETRY_DELAY_MS = 400L
+        private const val START_VERIFY_TIMEOUT_MS = 1500L
     }
 }
 

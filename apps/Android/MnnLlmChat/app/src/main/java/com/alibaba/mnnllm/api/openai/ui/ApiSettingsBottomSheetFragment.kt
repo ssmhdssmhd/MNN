@@ -19,7 +19,6 @@ import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentApiSettingsSheetBinding
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
-import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -122,12 +121,11 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         }
 
         binding.btnServiceRestart.setOnClickListener {
+            ApiServiceManager.restartApiService(requireContext())
             lifecycleScope.launch {
-                withContext(Dispatchers.IO) {
-                    ApiServiceManager.stopApiService(requireContext())
-                    delay(500)
-                    ApiServiceManager.startApiService(requireContext())
-                }
+                delay(800)
+                if (!isAdded) return@launch
+                refreshServiceStatus()
                 Toast.makeText(requireContext(), R.string.api_service_restarted, Toast.LENGTH_SHORT).show()
             }
         }
@@ -339,8 +337,9 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         //Commented out but keep these two Toasts, can be used for testing
         //  Toast.makeText(context, getString(R.string.api_settings_saved), Toast.LENGTH_SHORT).show()
 
-        //If API service is enabled, restart service to apply new configuration
-        if (MainSettings.isApiServiceEnabled(context)) {
+        //Apply the new configuration to a running service (even if auto-start is off)
+        val serviceShouldRun = MainSettings.isApiServiceEnabled(context) || ApiServiceManager.isApiServiceRunning()
+        if (serviceShouldRun) {
             if (ApiServiceManager.isApiServiceRunning()) {
                 //Print isApiServiceRunning value
                 Timber.d("saveSettings中isApiServiceRunning: ${ApiServiceManager.isApiServiceRunning()}")
@@ -348,14 +347,9 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
                 //  Toast.makeText(context, getString(R.string.restarting_api_service_new_config), Toast.LENGTH_SHORT).show()
 
-                //Delay starting new service to ensure stop operation completes
-                lifecycleScope.launch {
-
-                    ServerEventManager.getInstance().resetRuntimeState()
-                    ApiServiceManager.stopApiService(context)
-                    ApiServiceManager.startApiService(context)
-
-                }
+                //Restart in place. Call it directly: this fragment may be dismissed right after
+                //saving, and dismiss cancels the fragment lifecycleScope before it can run.
+                ApiServiceManager.restartApiService(context)
                 Toast.makeText(context, getString(R.string.api_settings_saved), Toast.LENGTH_SHORT).show()
 
                 //Print new configuration，
@@ -380,18 +374,14 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         val serviceShouldRun = MainSettings.isApiServiceEnabled(context) //Check if service should be running
 
         if (ApiServiceManager.isApiServiceRunning()) {
-            //If service is running, stop it first
-            ApiServiceManager.stopApiService(context)
+            if (serviceShouldRun) {
+                ApiServiceManager.restartApiService(context)
+            } else {
+                ApiServiceManager.stopApiService(context)
+            }
             lifecycleScope.launch {
-                kotlinx.coroutines.delay(2100) //Wait for service to stop completely
-                //ServerEventManager.getInstance().() // Reset state manager
-                if (serviceShouldRun) {
-                    //If service was previously enabled, restart with new default configuration
-                    Timber.d("ApiService is enabled, restarting with default settings.")
-                    ApiServiceManager.startApiService(context)
-                } else {
-                    Timber.d("ApiService is disabled, service stopped after resetting to defaults.")
-                }
+                delay(800)
+                if (!isAdded) return@launch
                 loadSettings() //Update UI in coroutine, ensure execution after service operations
                 refreshServiceStatus()
             }
