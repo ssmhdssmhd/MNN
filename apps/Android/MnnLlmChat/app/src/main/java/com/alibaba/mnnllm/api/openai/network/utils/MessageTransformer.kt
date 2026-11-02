@@ -108,7 +108,7 @@ class MessageTransformer {
             if (role == "assistant") {
                 content = stripThinking(content)
                 // A turn that only contained reasoning carries no usable context.
-                if (content.isEmpty()) return@forEach
+                if (content.isEmpty()) continue
             }
 
             if (isR1Model) {
