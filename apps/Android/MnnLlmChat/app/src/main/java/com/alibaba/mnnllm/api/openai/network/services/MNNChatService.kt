@@ -47,7 +47,7 @@ class MNNChatService {
             return
         }
         logger.logInfo(traceId, "Switching API runtime model to: $modelId")
-        val result = runtimeController.ensureSession(modelId)
+        val result = com.alibaba.mnnllm.api.openai.runtime.ApiRuntimeSessionHelper.ensureSession(modelId)
         if (!result.success || result.session == null) {
             throw IllegalStateException(
                 "Failed to load model '$modelId': ${result.reason ?: "unknown"}"

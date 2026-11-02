@@ -55,6 +55,12 @@ class LogCollector private constructor() {
                 else -> LogLevel.DEBUG
             }
             
+            //onlycollectAPIrelatedlog
+            // Check the filter before capturing the stack trace, which is expensive.
+            if (!isApiRelatedLog(tag, message)) {
+                return
+            }
+
             //getcallstackinfo
             val stackTrace = Thread.currentThread().stackTrace
             val callerInfo = findCallerInfo(stackTrace)
@@ -70,10 +76,7 @@ class LogCollector private constructor() {
                 methodName = callerInfo?.methodName
             )
             
-            //onlycollectAPIrelatedlog
-            if (isApiRelatedLog(tag, message)) {
-                _logFlow.tryEmit(logEntry)
-            }
+            _logFlow.tryEmit(logEntry)
         }
         
         /** * findcallerinfo*/

@@ -162,7 +162,6 @@ private class ResponsesService {
                         task = {
                             metrics = generate(request, traceId) { delta ->
                                 full.append(delta)
-                                logger.logStreamDelta(traceId, delta)
                                 channel.trySend(
                                     sse(
                                         "response.output_text.delta",
@@ -273,7 +272,7 @@ private class ResponsesService {
             return
         }
         logger.logInfo(traceId, "Switching API runtime model to: $modelId")
-        val result = runtimeController.ensureSession(modelId)
+        val result = com.alibaba.mnnllm.api.openai.runtime.ApiRuntimeSessionHelper.ensureSession(modelId)
         if (!result.success || result.session == null) {
             throw IllegalStateException("Failed to load model '$modelId': ${result.reason ?: "unknown"}")
         }

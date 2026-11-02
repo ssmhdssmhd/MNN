@@ -64,8 +64,8 @@ class ResponseHandler {
                                 return try {
                                     when {
                                         progress != null -> {
-                                            // Send progress token
-                                            logger.logStreamDelta(traceId, progress)
+                                            // Send progress token. Do not log every token: log collection
+                                            // captures stack traces and would throttle streaming.
                                             val json = chatResponseFormatter.createDeltaResponse(
                                                 responseMetadata.responseId,
                                                 responseMetadata.created,

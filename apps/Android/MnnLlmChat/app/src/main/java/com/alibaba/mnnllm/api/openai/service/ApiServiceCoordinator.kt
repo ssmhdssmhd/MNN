@@ -156,7 +156,7 @@ class ApiServiceCoordinator(private val context: Context) {
     }
 
     private fun ensureRuntimeSessionForModel(modelId: String): LlmSession? {
-        val ensureResult = ServiceLocator.getLlmRuntimeController().ensureSession(modelId)
+        val ensureResult = com.alibaba.mnnllm.api.openai.runtime.ApiRuntimeSessionHelper.ensureSession(modelId)
         if (!ensureResult.success || ensureResult.session == null) {
             Timber.Forest.tag(TAG).w(
                 "Failed to ensure runtime session for modelId=%s, reason=%s",
