@@ -1,5 +1,10 @@
 # 更新日志
 
+## v0.0.21 (2026-11-03)
+
+- 修复「测速」报错 `Cleartext HTTP traffic to 127.0.0.1 not permitted`：新增网络安全配置，仅对 `127.0.0.1`、`localhost`、`10.0.2.2` 放行明文 HTTP，其余域名仍强制 HTTPS
+- 端点测速与 App 内访问本机 API 服务可正常使用
+
 ## v0.0.20 (2026-11-03)
 
 - API 设置新增「端点速度」：实时显示最近一次 API 推理的首字延迟、生成速度（tok/s）与总耗时，Chat Completions 与 Responses 接口共用
