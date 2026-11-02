@@ -55,6 +55,8 @@ class ResponseHandler {
             // Producer Coroutine: Runs the LLM inference on IO thread
             launch(kotlinx.coroutines.Dispatchers.IO) {
                 var isFinished = false
+                val startAt = System.currentTimeMillis()
+                var firstTokenLogged = false
                 try {
                     val llmSession = getLlmSession()
                     if (llmSession != null) {
@@ -64,6 +66,14 @@ class ResponseHandler {
                                 return try {
                                     when {
                                         progress != null -> {
+                                            if (!firstTokenLogged) {
+                                                firstTokenLogged = true
+                                                logger.logInfo(
+                                                    traceId,
+                                                    "First token after ${System.currentTimeMillis() - startAt} ms"
+                                                )
+                                            }
+
                                             // Send progress token. Do not log every token: log collection
                                             // captures stack traces and would throttle streaming.
                                             val json = chatResponseFormatter.createDeltaResponse(
@@ -114,6 +124,11 @@ class ResponseHandler {
                             channel.send(ServerSentEvent(data = "[DONE]"))
                         }
                         logger.logInferenceComplete(traceId)
+                        logger.logInfo(
+                            traceId,
+                            "Inference finished in ${System.currentTimeMillis() - startAt} ms, " +
+                                "prompt_tokens=${result["prompt_len"]}, generated_tokens=${result["decode_len"]}"
+                        )
                     } else {
                         // Process LLM session error
                         logger.logLlmSessionError(traceId)

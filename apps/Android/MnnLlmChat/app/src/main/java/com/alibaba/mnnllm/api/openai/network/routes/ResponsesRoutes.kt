@@ -144,6 +144,8 @@ private class ResponsesService {
             launch(Dispatchers.IO) {
                 val full = StringBuilder()
                 var metrics = HashMap<String, Any>()
+                val startAt = System.currentTimeMillis()
+                var firstTokenLogged = false
                 try {
                     channel.send(
                         sse(
@@ -161,6 +163,13 @@ private class ResponsesService {
                         traceId = traceId,
                         task = {
                             metrics = generate(request, traceId) { delta ->
+                                if (!firstTokenLogged) {
+                                    firstTokenLogged = true
+                                    logger.logInfo(
+                                        traceId,
+                                        "First token after ${System.currentTimeMillis() - startAt} ms"
+                                    )
+                                }
                                 full.append(delta)
                                 channel.trySend(
                                     sse(
@@ -200,6 +209,11 @@ private class ResponsesService {
                         )
                     )
                     logger.logInferenceComplete(traceId)
+                    logger.logInfo(
+                        traceId,
+                        "Responses finished in ${System.currentTimeMillis() - startAt} ms, " +
+                            "prompt_tokens=${metrics["prompt_len"]}, generated_tokens=${metrics["decode_len"]}"
+                    )
                 } catch (e: Exception) {
                     logger.logError(traceId, e, "Responses streaming failed")
                     channel.trySend(
@@ -251,7 +265,10 @@ private class ResponsesService {
         val history = kotlinx.coroutines.runBlocking {
             messageTransformer.convertToUnifiedMnnHistory(request.messages, imageProcessor, llmSession)
         }
-        logger.logInfo(traceId, "Responses inference start, history size=${history.size}")
+        logger.logInfo(
+            traceId,
+            "Responses inference start, history size=${history.size}, chars=${history.sumOf { it.second.length }}"
+        )
         return llmSession.submitFullHistory(history, object : GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
                 if (progress != null) {

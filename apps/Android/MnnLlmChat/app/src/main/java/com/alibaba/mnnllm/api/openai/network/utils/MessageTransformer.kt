@@ -20,6 +20,15 @@ class MessageTransformer {
 
     companion object {
         private const val IMG_TAG_REGEX = "<img>.*?</img>"
+
+        // Thinking blocks from previous turns (<think>...</think>) are stripped before the
+        // history is sent to the engine. Clients such as Cherry Studio keep the reasoning
+        // content and resend it on every turn, which would otherwise re-prefill thousands
+        // of extra tokens per request (the main cause of "long context, upstream slow").
+        private val THINK_BLOCK_REGEX = Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL)
+
+        private fun stripThinking(content: String): String =
+            content.replace(THINK_BLOCK_REGEX, "").replace("</think>", "").trim()
     }
 
     /** * will OpenAI formatmessage willas MNN LLMrequiredunified format * @param messages OpenAIformatmessagelist * @param imageProcessor imageprocessor * @param llmSession LLM sessioninstance * @return unifiedhistory messagelist (firstas system prompt,subsequentas roledialogue)*/
@@ -94,6 +103,12 @@ class MessageTransformer {
             var content = processMessageContent(message, imageProcessor)
             if (index != lastImageIndex) {
                 content = content.replace(IMG_TAG_REGEX.toRegex(), "").trim()
+            }
+
+            if (role == "assistant") {
+                content = stripThinking(content)
+                // A turn that only contained reasoning carries no usable context.
+                if (content.isEmpty()) return@forEach
             }
 
             if (isR1Model) {
