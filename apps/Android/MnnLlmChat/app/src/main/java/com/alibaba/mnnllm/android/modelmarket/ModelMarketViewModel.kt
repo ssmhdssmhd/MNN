@@ -18,6 +18,8 @@ import com.alibaba.mnnllm.android.chat.model.ChatDataManager
 import com.alibaba.mnnllm.android.download.DownloadForegroundServiceManager
 import com.alibaba.mnnllm.android.modelmarket.ModelMarketCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -28,12 +30,18 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private val downloadManager = ModelDownloadManager.getInstance(application)
+    private val appContext = application.applicationContext
     private var allModels: List<ModelMarketItemWrapper> = emptyList()
     private var mainHandler: Handler = Handler(application.mainLooper)
     private val lastUpdateTimeMap: MutableMap<String, Long> = HashMap()
     private val lastDownloadProgressStage: MutableMap<String, String> = HashMap()
     private var modelMarketConfig: ModelMarketConfig? = null
     private var currentFilterState: FilterState = FilterState()
+
+    // Online (HuggingFace / ModelScope) search results merged below local catalog matches.
+    private var onlineResults: List<ModelMarketItemWrapper> = emptyList()
+    private var onlineSearchJob: Job? = null
+    private var lastOnlineSearchQuery: String = ""
 
     private val _models = MutableLiveData<List<ModelMarketItemWrapper>>()
     val models: LiveData<List<ModelMarketItemWrapper>> = _models
@@ -57,13 +65,26 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun updateDownloadInfo(modelId: String, downloadInfo: DownloadInfo) {
-        val currentList = allModels.map { it.copy() }
-        currentList.find { it.modelMarketItem.modelId == modelId }?.let {
-            it.downloadInfo = downloadInfo
+        val localIdx = allModels.indexOfFirst { it.modelMarketItem.modelId == modelId }
+        if (localIdx >= 0) {
+            val local = allModels.map { it.copy() }
+            local[localIdx].downloadInfo = downloadInfo
+            allModels = local
+        } else {
+            val onlineIdx = onlineResults.indexOfFirst { it.modelMarketItem.modelId == modelId }
+            if (onlineIdx >= 0) {
+                val online = onlineResults.map { it.copy() }
+                online[onlineIdx].downloadInfo = downloadInfo
+                onlineResults = online
+            }
         }
-        allModels = currentList
         // Re-apply current filter state instead of showing all models
         applyCurrentFilters()
+    }
+
+    private fun findWrapper(modelId: String): ModelMarketItemWrapper? {
+        return allModels.find { it.modelMarketItem.modelId == modelId }
+            ?: onlineResults.find { it.modelMarketItem.modelId == modelId }
     }
     
     private fun applyCurrentFilters() {
@@ -128,9 +149,62 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
                 modelMarketItem.description?.lowercase(Locale.getDefault())?.contains(searchLower) == true ||
                 modelMarketItem.tags.any { it.lowercase(Locale.getDefault()).contains(searchLower) }
             }
+
+            // Kick off an online search (debounced) so we can append network results
+            // below the local catalog matches.
+            maybeSearchOnline(currentFilterState.searchQuery)
+        } else {
+            // No query: discard any previous online results.
+            onlineResults = emptyList()
+            lastOnlineSearchQuery = ""
+            onlineSearchJob?.cancel()
         }
 
-        _models.postValue(filteredList)
+        _models.postValue(mergeWithOnline(filteredList))
+    }
+
+    /**
+     * Local catalog matches come first, then online search results (deduplicated by modelId).
+     */
+    private fun mergeWithOnline(local: List<ModelMarketItemWrapper>): List<ModelMarketItemWrapper> {
+        if (onlineResults.isEmpty()) return local
+        val localIds = local.mapTo(HashSet()) { it.modelMarketItem.modelId }
+        val appended = onlineResults.filterNot { localIds.contains(it.modelMarketItem.modelId) }
+        return if (appended.isEmpty()) local else local + appended
+    }
+
+    private fun maybeSearchOnline(query: String) {
+        if (query == lastOnlineSearchQuery) return // already searched for this query
+        onlineSearchJob?.cancel()
+        if (query.trim().length < 2) return
+        onlineSearchJob = viewModelScope.launch {
+            delay(400) // debounce
+            val results = runCatching {
+                OnlineModelSearchRepository.searchAll(appContext, query)
+            }.getOrDefault(emptyList())
+            if (currentFilterState.searchQuery != query) return@launch // stale
+            lastOnlineSearchQuery = query
+            onlineResults = results.map { it.toMarketItem() }
+            applyCurrentFilters()
+        }
+    }
+
+    private fun OnlineModelSearchRepository.Result.toMarketItem(): ModelMarketItemWrapper {
+        val item = ModelMarketItem(
+            modelName = modelName,
+            vendor = source,
+            sizeB = sizeGb,
+            tags = listOf("在线", source),
+            categories = emptyList(),
+            sources = mapOf(source to repoId),
+            description = "在线搜索结果",
+            fileSize = 0L
+        ).apply {
+            currentSource = source
+            currentRepoPath = repoId
+            modelId = downloadId
+        }
+        return ModelMarketItemWrapper(item, DownloadInfo())
     }
 
     fun loadModels() {
@@ -187,7 +261,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     private fun resolveModelName(modelId: String): String? {
-        return allModels.firstOrNull { it.modelMarketItem.modelId == modelId }?.modelMarketItem?.modelName
+        return findWrapper(modelId)?.modelMarketItem?.modelName
     }
 
     fun startDownload(item: ModelMarketItem) {
@@ -263,7 +337,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
     // DownloadListener implementation - reusing logic from ModelListPresenter
     override fun onDownloadTotalSize(modelId: String, totalSize: Long) {
         mainHandler.post {
-            allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
+            findWrapper(modelId)?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
         }
     }
@@ -279,7 +353,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
         lastDownloadProgressStage.remove(modelId)
         lastUpdateTimeMap.remove(modelId)
         mainHandler.post {
-            allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
+            findWrapper(modelId)?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
             DownloadForegroundServiceManager.onDownloadStateChanged(
                 modelId = modelId,
@@ -390,7 +464,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun onDownloadPaused(modelId: String) {
         mainHandler.post {
-            allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
+            findWrapper(modelId)?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
             DownloadForegroundServiceManager.onDownloadStateChanged(
                 modelId = modelId,
@@ -402,7 +476,7 @@ class ModelMarketViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun onDownloadFileRemoved(modelId: String) {
         mainHandler.post {
-            allModels.find { it.modelMarketItem.modelId == modelId }?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
+            findWrapper(modelId)?.let { updateDownloadInfo(modelId, downloadManager.getDownloadInfo(it.modelMarketItem.modelId)) }
             _itemUpdate.value = modelId
             DownloadForegroundServiceManager.onDownloadStateChanged(
                 modelId = modelId,

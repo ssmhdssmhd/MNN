@@ -18,7 +18,7 @@
 >
 > MnnLlmChat「存储管理」页可设置模型存储路径（内置 / 外置 / 自定义），修改路径时会自动把旧路径下的模型迁移到新路径，避免模型丢失。
 >
-> MnnLlmChat「模型市场」支持在线搜索并直接下载 MNN 已转换模型（HuggingFace `taobao-mnn` / 魔搭 `MNN`），下载完成后即可在本地模型列表中使用。
+> MnnLlmChat「模型市场」搜索框可直接联网搜索 HuggingFace（含 `taobao-mnn` 在内的任意 MNN 仓库）与魔搭模型，结果按「本地目录匹配 → 在线搜索结果」排序，在线结果可直接在列表中下载运行。
 >
 > MnnLlmChat API 设置支持开启 OpenAI Responses API（`/v1/responses`），保存设置后自动重启服务生效；服务同时支持按请求 `model` 字段在多模型间自动切换。
 >

@@ -62,7 +62,7 @@ object OnlineModelSearchRepository {
         }
     }
 
-    /** Rank exact name matches first, then shorter names, then popularity/size. */
+    /** Rank exact name matches first, then official MNN repos, then shorter names. */
     private fun score(result: Result, keyword: String): Double {
         val name = result.modelName.lowercase()
         val query = keyword.lowercase()
@@ -70,6 +70,7 @@ object OnlineModelSearchRepository {
         if (name == query) value += 100.0
         else if (name.contains(query)) value += 60.0
         else if (query.contains(name)) value += 20.0
+        if (result.repoId.startsWith("$HF_ORG/")) value += 15.0 // official taobao-mnn conversions
         value += result.sizeGb * 2
         return value
     }
@@ -118,14 +119,17 @@ object OnlineModelSearchRepository {
         val encoded = URLEncoder.encode(keyword, "UTF-8")
         val hosts = listOf("https://hf-mirror.com", "https://huggingface.co")
         for (host in hosts) {
-            val body = get("$host/api/models?author=$HF_ORG&search=$encoded&limit=20&full=false") ?: continue
+            // Search broadly on HF, then keep only MNN-converted repos (name contains "mnn").
+            // taobao-mnn author repos are preferred (official MNN conversions).
+            val body = get("$host/api/models?search=$encoded&limit=30&full=false") ?: continue
             val arr = runCatching { JSONArray(body) }.getOrNull() ?: continue
             val results = mutableListOf<Result>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
                 val repoId = obj.optString("id")
-                if (!repoId.startsWith("$HF_ORG/")) continue
+                if (repoId.isBlank()) continue
                 val name = repoId.substringAfterLast('/')
+                if (!name.contains("mnn", ignoreCase = true)) continue
                 results.add(
                     Result(
                         modelName = name,

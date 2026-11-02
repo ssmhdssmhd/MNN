@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 env:
-  APP_VERSION: "0.0.14"
+  APP_VERSION: "0.0.15"
 
 jobs:
   build_mnn_libs:
