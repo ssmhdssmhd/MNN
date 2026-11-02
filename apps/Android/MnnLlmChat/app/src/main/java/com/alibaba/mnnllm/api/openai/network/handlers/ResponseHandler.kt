@@ -3,6 +3,7 @@ package com.alibaba.mnnllm.api.openai.network.handlers
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
+import com.alibaba.mnnllm.api.openai.manager.ApiSpeedStats
 import com.alibaba.mnnllm.api.openai.network.logging.ChatLogger
 import com.alibaba.mnnllm.api.openai.network.utils.ChatResponseFormatter
 import io.ktor.http.HttpStatusCode
@@ -57,6 +58,7 @@ class ResponseHandler {
                 var isFinished = false
                 val startAt = System.currentTimeMillis()
                 var firstTokenLogged = false
+                ApiSpeedStats.onRequestStart()
                 try {
                     val llmSession = getLlmSession()
                     if (llmSession != null) {
@@ -68,6 +70,7 @@ class ResponseHandler {
                                         progress != null -> {
                                             if (!firstTokenLogged) {
                                                 firstTokenLogged = true
+                                                ApiSpeedStats.onFirstToken(System.currentTimeMillis() - startAt)
                                                 logger.logInfo(
                                                     traceId,
                                                     "First token after ${System.currentTimeMillis() - startAt} ms"
@@ -124,9 +127,11 @@ class ResponseHandler {
                             channel.send(ServerSentEvent(data = "[DONE]"))
                         }
                         logger.logInferenceComplete(traceId)
+                        val elapsedMs = System.currentTimeMillis() - startAt
+                        ApiSpeedStats.onComplete(elapsedMs, result)
                         logger.logInfo(
                             traceId,
-                            "Inference finished in ${System.currentTimeMillis() - startAt} ms, " +
+                            "Inference finished in ${elapsedMs} ms, " +
                                 "prompt_tokens=${result["prompt_len"]}, generated_tokens=${result["decode_len"]}"
                         )
                     } else {
@@ -196,6 +201,8 @@ class ResponseHandler {
         val responseMetadata = createResponseMetadata()
         
         var result = HashMap<String, Any>()
+        val startAt = System.currentTimeMillis()
+        ApiSpeedStats.onRequestStart()
         try {
             val llmSession = getLlmSession()
             if (llmSession != null) {
@@ -206,6 +213,7 @@ class ResponseHandler {
         } catch (e: Exception) {
             fullResponse.append("Error: ${e.message}")
         }
+        ApiSpeedStats.onComplete(System.currentTimeMillis() - startAt, result)
 
         val response = createNonStreamResponse(responseMetadata, fullResponse.toString(), result)
         //set correctContent-Typeas application/json

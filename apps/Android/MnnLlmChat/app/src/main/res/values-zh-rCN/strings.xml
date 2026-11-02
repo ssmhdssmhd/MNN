@@ -206,6 +206,13 @@
     <string name="api_service_started">API 服务已启动</string>
     <string name="api_service_stopped_msg">API 服务已停止</string>
     <string name="api_service_restarted">API 服务已重启</string>
+    <string name="api_endpoint_speed">端点速度</string>
+    <string name="api_endpoint_speed_none">暂无请求</string>
+    <string name="api_endpoint_speed_value">首字 %1$s · %2$s tok/s · 总耗时 %3$d ms</string>
+    <string name="api_endpoint_speed_test">测速</string>
+    <string name="api_endpoint_speed_testing">测速中…</string>
+    <string name="api_endpoint_speed_test_failed">测速失败：%1$s</string>
+    <string name="api_endpoint_speed_not_running">请先启动 API 服务</string>
 
     <string name="developer_info">开发者信息</string>
     <string name="auto_clear_logs_on_start">启动时自动清空日志</string>

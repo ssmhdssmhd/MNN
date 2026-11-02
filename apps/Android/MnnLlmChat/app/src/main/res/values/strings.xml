@@ -214,6 +214,13 @@
     <string name="api_service_started">API service started</string>
     <string name="api_service_stopped_msg">API service stopped</string>
     <string name="api_service_restarted">API service restarted</string>
+    <string name="api_endpoint_speed">Endpoint speed</string>
+    <string name="api_endpoint_speed_none">No requests yet</string>
+    <string name="api_endpoint_speed_value">First token %1$s · %2$s tok/s · total %3$d ms</string>
+    <string name="api_endpoint_speed_test">Test</string>
+    <string name="api_endpoint_speed_testing">Testing…</string>
+    <string name="api_endpoint_speed_test_failed">Speed test failed: %1$s</string>
+    <string name="api_endpoint_speed_not_running">Start the API service first</string>
 
     <string name="developer_info">Developer Info</string>
     <string name="auto_clear_logs_on_start">Auto-clear logs on start</string>

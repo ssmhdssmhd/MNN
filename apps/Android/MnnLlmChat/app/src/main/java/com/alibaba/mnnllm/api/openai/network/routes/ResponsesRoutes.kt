@@ -12,6 +12,7 @@ import com.alibaba.mnnllm.android.MnnLlmApplication
 import com.alibaba.mnnllm.android.llm.GenerateProgressListener
 import com.alibaba.mnnllm.android.llm.LlmSession
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
+import com.alibaba.mnnllm.api.openai.manager.ApiSpeedStats
 import com.alibaba.mnnllm.api.openai.network.logging.ChatLogger
 import com.alibaba.mnnllm.api.openai.network.processors.MnnImageProcessor
 import com.alibaba.mnnllm.api.openai.network.queue.RequestQueueManager
@@ -101,6 +102,8 @@ private class ResponsesService {
         } else {
             val content = StringBuilder()
             var metrics = HashMap<String, Any>()
+            val startAt = System.currentTimeMillis()
+            ApiSpeedStats.onRequestStart()
             try {
                 requestQueueManager.submitRequest(
                     requestId = responseId,
@@ -109,6 +112,7 @@ private class ResponsesService {
                         metrics = generate(request, traceId) { content.append(it) }
                     }
                 )
+                ApiSpeedStats.onComplete(System.currentTimeMillis() - startAt, metrics)
                 val body = buildResponse(responseId, createdAt, modelName, content.toString(), metrics)
                 call.respondText(body, ContentType.Application.Json)
             } catch (e: Exception) {
@@ -146,6 +150,7 @@ private class ResponsesService {
                 var metrics = HashMap<String, Any>()
                 val startAt = System.currentTimeMillis()
                 var firstTokenLogged = false
+                ApiSpeedStats.onRequestStart()
                 try {
                     channel.send(
                         sse(
@@ -165,6 +170,7 @@ private class ResponsesService {
                             metrics = generate(request, traceId) { delta ->
                                 if (!firstTokenLogged) {
                                     firstTokenLogged = true
+                                    ApiSpeedStats.onFirstToken(System.currentTimeMillis() - startAt)
                                     logger.logInfo(
                                         traceId,
                                         "First token after ${System.currentTimeMillis() - startAt} ms"
@@ -209,9 +215,11 @@ private class ResponsesService {
                         )
                     )
                     logger.logInferenceComplete(traceId)
+                    val elapsedMs = System.currentTimeMillis() - startAt
+                    ApiSpeedStats.onComplete(elapsedMs, metrics)
                     logger.logInfo(
                         traceId,
-                        "Responses finished in ${System.currentTimeMillis() - startAt} ms, " +
+                        "Responses finished in ${elapsedMs} ms, " +
                             "prompt_tokens=${metrics["prompt_len"]}, generated_tokens=${metrics["decode_len"]}"
                     )
                 } catch (e: Exception) {

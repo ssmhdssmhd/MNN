@@ -18,7 +18,9 @@ import androidx.lifecycle.lifecycleScope
 import com.alibaba.mnnllm.android.R
 import com.alibaba.mnnllm.android.databinding.FragmentApiSettingsSheetBinding
 import com.alibaba.mnnllm.android.mainsettings.MainSettings
+import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
+import com.alibaba.mnnllm.api.openai.manager.ApiSpeedStats
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -76,6 +78,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         setupCorsSettings()
         setupAuthSettings()
         setupServiceControl()
+        setupEndpointSpeed()
         setupActionButtons()
     }
 
@@ -95,8 +98,9 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         lifecycleScope.launch {
             while (true) {
                 delay(1000)
-                if (!isAdded) break
+                if (!isAdded || _binding == null) break
                 refreshServiceStatus()
+                refreshEndpointSpeed()
             }
         }
 
@@ -128,6 +132,89 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
                 refreshServiceStatus()
                 Toast.makeText(requireContext(), R.string.api_service_restarted, Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun setupEndpointSpeed() {
+        refreshEndpointSpeed()
+        binding.btnEndpointSpeedTest.setOnClickListener {
+            if (!ApiServiceManager.isApiServiceRunning()) {
+                Toast.makeText(requireContext(), R.string.api_endpoint_speed_not_running, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            binding.btnEndpointSpeedTest.isEnabled = false
+            binding.tvEndpointSpeed.text = getString(R.string.api_endpoint_speed_testing)
+            lifecycleScope.launch {
+                val summary = withContext(Dispatchers.IO) { runEndpointSpeedProbe() }
+                if (!isAdded) return@launch
+                binding.btnEndpointSpeedTest.isEnabled = true
+                binding.tvEndpointSpeed.text = summary
+            }
+        }
+    }
+
+    private fun refreshEndpointSpeed() {
+        val stats = ApiSpeedStats.snapshot()
+        val text = if (stats == null) {
+            getString(R.string.api_endpoint_speed_none)
+        } else {
+            val firstToken = if (stats.firstTokenMs > 0) "${stats.firstTokenMs} ms" else "—"
+            getString(
+                R.string.api_endpoint_speed_value,
+                firstToken,
+                String.format(Locale.US, "%.1f", stats.tokensPerSecond),
+                stats.totalMs
+            )
+        }
+        if (binding.tvEndpointSpeed.text != text) {
+            binding.tvEndpointSpeed.text = text
+        }
+    }
+
+    /** Sends a minimal chat completion to the local endpoint to measure real latency. */
+    private fun runEndpointSpeedProbe(): String {
+        return try {
+            val context = requireContext()
+            val modelId = MainSettings.getApiSelectedModelIds(context).firstOrNull()
+                ?: ModelListManager.getCurrentModels()
+                    ?.firstOrNull { it.modelItem.modelId != null }?.modelItem?.modelId
+            val payload = org.json.JSONObject()
+                .put(
+                    "messages",
+                    org.json.JSONArray().put(
+                        org.json.JSONObject().put("role", "user").put("content", "你好")
+                    )
+                )
+                .put("max_tokens", 8)
+                .put("stream", false)
+            if (!modelId.isNullOrBlank()) payload.put("model", modelId)
+
+            val port = ApiServiceManager.getApiServicePort(context)
+            val conn = java.net.URL("http://127.0.0.1:$port/v1/chat/completions")
+                .openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 30_000
+            conn.readTimeout = 180_000
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Authorization", "Bearer ${if (apiKey.isNotBlank()) apiKey else "mnn-local"}")
+
+            val startAt = System.currentTimeMillis()
+            conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+            val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+            val elapsedMs = System.currentTimeMillis() - startAt
+            val tokens = runCatching {
+                org.json.JSONObject(responseText).getJSONObject("usage").optInt("completion_tokens", 0)
+            }.getOrDefault(0)
+            ApiSpeedStats.onComplete(elapsedMs, tokens)
+            getString(
+                R.string.api_endpoint_speed_value,
+                "—",
+                String.format(Locale.US, "%.1f", if (elapsedMs > 0) tokens * 1000f / elapsedMs else 0f),
+                elapsedMs
+            )
+        } catch (e: Exception) {
+            getString(R.string.api_endpoint_speed_test_failed, e.message ?: e.javaClass.simpleName)
         }
     }
 
