@@ -1,5 +1,6 @@
 package com.alibaba.mnnllm.android.modelmarket
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -10,45 +11,130 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-/** Aggregated search across model download sources (HuggingFace / ModelScope / Modelers). */
+/**
+ * Search for MNN-format models that can actually run on device.
+ *
+ * Sources:
+ *  - The bundled model market catalogue (assets/model_market.json), which lists both
+ *    HuggingFace (taobao-mnn) and ModelScope (MNN) repo ids for each MNN model.
+ *  - Live HuggingFace search restricted to the `taobao-mnn` author.
+ *  - A directly entered `owner/repo` id, validated against ModelScope / HuggingFace.
+ *
+ * Raw HF weights (safetensors/bin) are excluded on purpose: only MNN converted repos work.
+ */
 object OnlineModelSearchRepository {
 
     data class Result(
+        val modelName: String,
         val source: String,
-        val modelId: String,
+        val repoId: String,
+        val downloadId: String,
         val downloads: Long,
+        val sizeGb: Double,
         val url: String
     )
 
     private const val TIMEOUT_MS = 8000
+    private const val HF_REPO_PREFIX = "HuggingFace/"
+    private const val MS_REPO_PREFIX = "ModelScope/"
+    private const val HF_ORG = "taobao-mnn"
+    private const val MS_ORG = "MNN"
 
-    suspend fun searchAll(query: String): List<Result> = withContext(Dispatchers.IO) {
-        if (query.isBlank()) return@withContext emptyList()
+    suspend fun searchAll(context: Context, query: String): List<Result> = withContext(Dispatchers.IO) {
+        val keyword = query.trim()
+        if (keyword.isEmpty()) return@withContext emptyList()
+
         coroutineScope {
-            val hf = async { runCatching { searchHuggingFace(query) }.getOrDefault(emptyList()) }
-            val ms = async { runCatching { searchModelScope(query) }.getOrDefault(emptyList()) }
-            val mo = async { runCatching { searchModelers(query) }.getOrDefault(emptyList()) }
-            (hf.await() + ms.await() + mo.await()).sortedByDescending { it.downloads }
+            val catalog = async { runCatching { searchCatalog(context, keyword) }.getOrDefault(emptyList()) }
+            val hf = async { runCatching { searchHuggingFace(keyword) }.getOrDefault(emptyList()) }
+            val direct = async { runCatching { searchDirectId(keyword) }.getOrDefault(emptyList()) }
+
+            val merged = mutableListOf<Result>()
+            merged.addAll(direct.await())
+            merged.addAll(catalog.await())
+            for (item in hf.await()) {
+                if (merged.none { it.repoId.equals(item.repoId, ignoreCase = true) }) {
+                    merged.add(item)
+                }
+            }
+            merged.distinctBy { it.repoId.lowercase() }
+                .sortedByDescending { score(it, keyword) }
         }
     }
 
-    private fun searchHuggingFace(query: String): List<Result> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        val hosts = listOf("https://huggingface.co", "https://hf-mirror.com")
+    /** Rank exact name matches first, then shorter names, then popularity/size. */
+    private fun score(result: Result, keyword: String): Double {
+        val name = result.modelName.lowercase()
+        val query = keyword.lowercase()
+        var value = 0.0
+        if (name == query) value += 100.0
+        else if (name.contains(query)) value += 60.0
+        else if (query.contains(name)) value += 20.0
+        value += result.sizeGb * 2
+        return value
+    }
+
+    private fun searchCatalog(context: Context, keyword: String): List<Result> {
+        val body = context.assets.open("model_market.json").bufferedReader().use { it.readText() }
+        val root = JSONObject(body)
+        val models = root.optJSONArray("models") ?: return emptyList()
+        val query = keyword.lowercase()
+        val results = mutableListOf<Result>()
+
+        for (i in 0 until models.length()) {
+            val item = models.optJSONObject(i) ?: continue
+            val name = item.optString("modelName")
+            val vendor = item.optString("vendor")
+            val categories = item.optJSONArray("categories")?.let { arr ->
+                (0 until arr.length()).map { arr.optString(it) }
+            }.orEmpty()
+
+            val searchable = (name + " " + vendor + " " + categories.joinToString(" ")).lowercase()
+            if (!searchable.contains(query)) continue
+
+            val sources = item.optJSONObject("sources") ?: continue
+            val msId = sources.optString("ModelScope").takeIf { it.isNotBlank() }
+            val hfId = sources.optString("HuggingFace").takeIf { it.isNotBlank() }
+            val repoId = msId ?: hfId ?: continue
+            val isModelScope = msId != null
+
+            results.add(
+                Result(
+                    modelName = name,
+                    source = if (isModelScope) "ModelScope" else "HuggingFace",
+                    repoId = repoId,
+                    downloadId = if (isModelScope) MS_REPO_PREFIX + repoId else HF_REPO_PREFIX + repoId,
+                    downloads = 0,
+                    sizeGb = item.optDouble("size_gb", 0.0),
+                    url = if (isModelScope) "https://modelscope.cn/models/$repoId"
+                    else "https://huggingface.co/$repoId"
+                )
+            )
+        }
+        return results.take(30)
+    }
+
+    private fun searchHuggingFace(keyword: String): List<Result> {
+        val encoded = URLEncoder.encode(keyword, "UTF-8")
+        val hosts = listOf("https://hf-mirror.com", "https://huggingface.co")
         for (host in hosts) {
-            val body = get("$host/api/models?search=$encoded&limit=20&full=false") ?: continue
+            val body = get("$host/api/models?author=$HF_ORG&search=$encoded&limit=20&full=false") ?: continue
             val arr = runCatching { JSONArray(body) }.getOrNull() ?: continue
             val results = mutableListOf<Result>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
-                val id = obj.optString("id")
-                if (id.isBlank()) continue
+                val repoId = obj.optString("id")
+                if (!repoId.startsWith("$HF_ORG/")) continue
+                val name = repoId.substringAfterLast('/')
                 results.add(
                     Result(
+                        modelName = name,
                         source = "HuggingFace",
-                        modelId = id,
+                        repoId = repoId,
+                        downloadId = HF_REPO_PREFIX + repoId,
                         downloads = obj.optLong("downloads", 0),
-                        url = "https://huggingface.co/$id"
+                        sizeGb = 0.0,
+                        url = "https://huggingface.co/$repoId"
                     )
                 )
             }
@@ -57,42 +143,58 @@ object OnlineModelSearchRepository {
         return emptyList()
     }
 
-    private fun searchModelScope(query: String): List<Result> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        val body = get("https://modelscope.cn/api/v1/models?PageNumber=1&PageSize=20&Name=$encoded") ?: return emptyList()
-        val root = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
-        val models = root.optJSONObject("Data")?.optJSONArray("Models")
-            ?: root.optJSONArray("Data")
-            ?: return emptyList()
-        return parseNameBased(models, "ModelScope", "https://modelscope.cn/models")
-    }
-
-    private fun searchModelers(query: String): List<Result> {
-        val encoded = URLEncoder.encode(query, "UTF-8")
-        val body = get("https://modelers.cn/api/v1/models?PageSize=20&Name=$encoded") ?: return emptyList()
-        val root = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
-        val models = root.optJSONArray("data")
-            ?: root.optJSONObject("data")?.optJSONArray("models")
-            ?: return emptyList()
-        return parseNameBased(models, "Modelers", "https://modelers.cn/models")
-    }
-
-    private fun parseNameBased(arr: JSONArray, source: String, urlPrefix: String): List<Result> {
+    /**
+     * Support pasting a repo id directly: `owner/repo`, `MNN/xxx`, `taobao-mnn/xxx`,
+     * optionally prefixed with `HuggingFace/` or `ModelScope/`.
+     */
+    private suspend fun searchDirectId(raw: String): List<Result> {
+        var id = raw.removePrefix(HF_REPO_PREFIX).removePrefix(MS_REPO_PREFIX)
+        if (!id.contains("/")) return emptyList()
+        // Only MNN-converted repos are runnable on device; reject raw weight repos.
+        if (!id.substringAfterLast('/').contains("mnn", ignoreCase = true)) return emptyList()
         val results = mutableListOf<Result>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.optJSONObject(i) ?: continue
-            val id = obj.optString("Name").ifBlank { obj.optString("name") }
-            if (id.isBlank()) continue
-            results.add(
-                Result(
-                    source = source,
-                    modelId = id,
-                    downloads = obj.optLong("Downloads", obj.optLong("downloads", 0)),
-                    url = "$urlPrefix/$id"
-                )
-            )
+
+        val msAvailable = validateModelScope(id)
+        if (msAvailable) {
+            results.add(fromRepoId(id, "ModelScope", 0L, 0.0))
+        }
+        val hfAvailable = validateHuggingFace(id)
+        if (hfAvailable) {
+            results.add(fromRepoId(id, "HuggingFace", 0L, 0.0))
+        }
+        if (results.isEmpty() && id.startsWith("$MS_ORG/")) {
+            results.add(fromRepoId(id, "ModelScope", 0L, 0.0))
+        }
+        if (results.isEmpty() && id.startsWith("$HF_ORG/")) {
+            results.add(fromRepoId(id, "HuggingFace", 0L, 0.0))
         }
         return results
+    }
+
+    private fun fromRepoId(repoId: String, source: String, downloads: Long, sizeGb: Double): Result {
+        return Result(
+            modelName = repoId.substringAfterLast('/'),
+            source = source,
+            repoId = repoId,
+            downloadId = (if (source == "ModelScope") MS_REPO_PREFIX else HF_REPO_PREFIX) + repoId,
+            downloads = downloads,
+            sizeGb = sizeGb,
+            url = if (source == "ModelScope") "https://modelscope.cn/models/$repoId"
+            else "https://huggingface.co/$repoId"
+        )
+    }
+
+    private fun validateModelScope(repoId: String): Boolean {
+        val body = get("https://modelscope.cn/api/v1/models/$repoId") ?: return false
+        return runCatching { JSONObject(body).optInt("Code") == 200 }.getOrDefault(false)
+    }
+
+    private fun validateHuggingFace(repoId: String): Boolean {
+        for (host in listOf("https://hf-mirror.com", "https://huggingface.co")) {
+            val body = get("$host/api/models/$repoId") ?: continue
+            if (runCatching { JSONObject(body).has("id") }.getOrDefault(false)) return true
+        }
+        return false
     }
 
     private fun get(url: String): String? {

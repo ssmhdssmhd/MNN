@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.0.14 (2026-11-02)
+
+- 新增 OpenAI Responses API 兼容端点 `/v1/responses`（由设置页「Response API」开关控制，保存后自动重启服务生效）
+- `/v1/responses` 支持 `input` 字符串 / 消息数组、`instructions`、`stream`（SSE：`response.created` / `response.output_text.delta` / `response.completed`），并按请求 `model` 自动切换运行时模型
+- 「在下载源中搜索」改为 MNN 模型专用搜索与下载：聚合本地模型市场目录（含 HuggingFace `taobao-mnn` 与魔搭 `MNN` 仓库映射）及 HuggingFace 实时搜索，结果均为可直接运行的 MNN 已转换模型
+- 搜索结果新增「下载」按钮，支持下载进度显示；下载完成后模型自动出现在本地模型列表
+- 支持直接粘贴仓库 ID（如 `owner/repo`、`MNN/xxx`、`taobao-mnn/xxx`）进行校验并下载
+
 ## v0.0.13 (2026-11-02)
 
 - 移除对话页菜单中的「API 设置」「API 控制台」，统一从设置页管理 API

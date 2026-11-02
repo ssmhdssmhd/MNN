@@ -4,6 +4,7 @@ import com.alibaba.mnnllm.api.openai.network.routes.anthropicRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.chatRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.modelsRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.queueRoutes
+import com.alibaba.mnnllm.api.openai.network.routes.responsesRoutes
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -47,6 +48,14 @@ fun Application.configureRouting() {
 
         authenticate("auth-bearer") {
             chatRoutes()
+            // OpenAI Responses API (/v1/responses) is opt-in; the flag is read at
+            // routing setup, so toggling it requires an API service restart.
+            if (com.alibaba.mnnllm.api.openai.service.ApiServerConfig.isResponsesApiEnabled(
+                    com.alibaba.mnnllm.android.MnnLlmApplication.getAppContext()
+                )
+            ) {
+                responsesRoutes()
+            }
         }
     }
 
@@ -54,7 +63,8 @@ fun Application.configureRouting() {
         level = Level.INFO
         filter { call ->
             val path = call.request.path()
-            path.startsWith("/v1/chat/completions") || path.startsWith("/v1/messages")
+            path.startsWith("/v1/chat/completions") || path.startsWith("/v1/messages") ||
+                path.startsWith("/v1/responses")
         }
         format { call ->
             val status = call.response.status()
