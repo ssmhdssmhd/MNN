@@ -4,6 +4,7 @@ import MessageContent
 import MultiModalContent
 import OpenAIGenericMessage
 import OpenAIImageContent
+import OpenAIMultiModalContent
 import OpenAITextContent
 import StandardImageUrl
 import TextContent
