@@ -33,6 +33,9 @@ class RequestQueueManager private constructor() {
     
     // Whether currently processing requests
     private val isProcessing = AtomicInteger(0)
+
+    // Number of requests waiting in the channel
+    private val pendingRequests = AtomicInteger(0)
     
     // Queue statistics
     private val totalRequests = AtomicLong(0)
@@ -55,7 +58,8 @@ class RequestQueueManager private constructor() {
         val task: suspend () -> Unit,
         val onComplete: () -> Unit = {},
         val onError: (Exception) -> Unit = {},
-        val priority: Int = 0 // Priority, smaller number means higher priority
+        val priority: Int = 0, // Priority, smaller number means higher priority
+        @Volatile var cancelled: Boolean = false
     )
     
     /**
@@ -77,35 +81,43 @@ class RequestQueueManager private constructor() {
     ) {
         // Use CompletableDeferred to wait for task completion
         val taskCompletion = CompletableDeferred<Unit>()
-        
+
+        val queuedRequest = QueuedRequest(
+            requestId = requestId,
+            traceId = traceId,
+            task = task,
+            onComplete = {
+                onComplete()
+                taskCompletion.complete(Unit)
+            },
+            onError = { exception ->
+                onError(exception)
+                taskCompletion.completeExceptionally(exception)
+            },
+            priority = priority
+        )
+
         queueMutex.withLock {
-            val queuedRequest = QueuedRequest(
-                requestId = requestId,
-                traceId = traceId,
-                task = task,
-                onComplete = {
-                    onComplete()
-                    taskCompletion.complete(Unit)
-                },
-                onError = { exception ->
-                    onError(exception)
-                    taskCompletion.completeExceptionally(exception)
-                },
-                priority = priority
-            )
-            
             totalRequests.incrementAndGet()
-            
+
             Timber.tag("RequestQueue").d(
                 "Request added to queue: requestId=$requestId, traceId=$traceId, " +
                 "queue size=${getQueueSize()}, priority=$priority"
             )
-            
+
+            pendingRequests.incrementAndGet()
             requestQueue.send(queuedRequest)
         }
-        
-        // Wait for task completion
-        taskCompletion.await()
+
+        // Wait for task completion. If the HTTP client disconnects the caller is
+        // cancelled: mark the queued request so it is skipped instead of generating
+        // a response nobody is waiting for.
+        try {
+            taskCompletion.await()
+        } catch (e: CancellationException) {
+            queuedRequest.cancelled = true
+            throw e
+        }
     }
     
     /**
@@ -116,6 +128,7 @@ class RequestQueueManager private constructor() {
             Timber.tag("RequestQueue").i("Request queue processor started")
             
             for (request in requestQueue) {
+                pendingRequests.decrementAndGet()
                 try {
                     // Process requests serially, no need for compareAndSet check
                     // Because this coroutine itself is single-threaded
@@ -138,7 +151,12 @@ class RequestQueueManager private constructor() {
      */
     private suspend fun processRequest(request: QueuedRequest) {
         val startTime = System.currentTimeMillis()
-        
+
+        if (request.cancelled) {
+            Timber.tag("RequestQueue").d("Skip cancelled request: requestId=${request.requestId}")
+            return
+        }
+
         try {
             Timber.tag("RequestQueue").d(
                 "Start processing request: requestId=${request.requestId}, traceId=${request.traceId}"
@@ -171,20 +189,10 @@ class RequestQueueManager private constructor() {
     }
     
     /**
-     * Get queue size (approximate value). Non-blocking to avoid ANR when called from main thread.
+     * Get queue size (approximate value). Uses an atomic counter so polling this
+     * method never reorders the queue.
      */
-    fun getQueueSize(): Int {
-        return requestQueue.tryReceive().let {
-            if (it.isSuccess) {
-                // Put item back asynchronously to avoid runBlocking (which would block caller)
-                val item = it.getOrThrow()
-                queueScope.launch { requestQueue.send(item) }
-                1 // At least one
-            } else {
-                0 // Queue is empty
-            }
-        }
-    }
+    fun getQueueSize(): Int = pendingRequests.get()
     
     /**
      * Get queue statistics

@@ -206,7 +206,7 @@ class ResponseHandler {
         try {
             val llmSession = getLlmSession()
             if (llmSession != null) {
-                result = processNonStreamGeneration(llmSession, history, fullResponse)
+                result = processNonStreamGeneration(llmSession, history, fullResponse, startAt)
             } else {
                 fullResponse.append("Error: LlmSession not available")
             }
@@ -252,11 +252,19 @@ class ResponseHandler {
     private fun processNonStreamGeneration(
         llmSession: LlmSession,
         history: List<android.util.Pair<String, String>>,
-        fullResponse: StringBuilder
+        fullResponse: StringBuilder,
+        startAt: Long
     ): HashMap<String, Any> {
+        var firstToken = true
         return llmSession.submitFullHistory(history, object : GenerateProgressListener {
             override fun onProgress(progress: String?): Boolean {
-                progress?.let { fullResponse.append(it) }
+                if (progress != null) {
+                    if (firstToken) {
+                        firstToken = false
+                        ApiSpeedStats.onFirstToken(System.currentTimeMillis() - startAt)
+                    }
+                    fullResponse.append(progress)
+                }
                 return false //continuegenerate
             }
         })
