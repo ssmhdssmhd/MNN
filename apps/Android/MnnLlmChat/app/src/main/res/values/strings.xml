@@ -287,6 +287,7 @@
     <string name="stopped">Stopped</string>
     <string name="listen_address">Listen Address:</string>
     <string name="api_endpoint">API Endpoint:</string>
+    <string name="browser_chat_url">Browser chat:</string>
     <string name="current_config_summary">Current Configuration Summary</string>
     <string name="cors_label">CORS:</string>
     <string name="disabled">Disabled</string>

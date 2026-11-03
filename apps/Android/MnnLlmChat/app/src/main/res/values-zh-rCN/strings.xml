@@ -274,6 +274,7 @@
     <string name="stopped">已停止</string>
     <string name="listen_address">监听地址：</string>
     <string name="api_endpoint">API端点：</string>
+    <string name="browser_chat_url">浏览器聊天：</string>
     <string name="current_config_summary">当前配置摘要</string>
     <string name="cors_label">CORS：</string>
     <string name="disabled">已禁用</string>

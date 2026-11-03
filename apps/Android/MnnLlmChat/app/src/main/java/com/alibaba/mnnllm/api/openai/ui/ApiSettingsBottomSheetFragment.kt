@@ -21,6 +21,7 @@ import com.alibaba.mnnllm.android.mainsettings.MainSettings
 import com.alibaba.mnnllm.android.modelist.ModelListManager
 import com.alibaba.mnnllm.api.openai.manager.ApiServiceManager
 import com.alibaba.mnnllm.api.openai.manager.ApiSpeedStats
+import com.alibaba.mnnllm.api.openai.manager.ServerEventManager
 import com.alibaba.mnnllm.api.openai.service.ApiServerConfig
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -253,25 +254,33 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
         if (binding.textAccessUrl.text.isNullOrBlank()) {
             updateAccessUrl()
         }
-        if (ApiServiceManager.isApiServiceRunning()) {
+        if (ServerEventManager.getInstance().getCurrentState() == ServerEventManager.ServerState.READY) {
             launchBrowser()
             return
         }
         Toast.makeText(requireContext(), R.string.api_service_starting, Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                ApiServiceManager.startApiService(requireContext())
+            if (!ApiServiceManager.isApiServiceRunning()) {
+                withContext(Dispatchers.IO) {
+                    ApiServiceManager.startApiService(requireContext())
+                }
             }
-            delay(1500)
+            // Wait for the HTTP server to be ready, otherwise the browser hits a dead port.
+            var waited = 0
+            while (waited < 8000 &&
+                ServerEventManager.getInstance().getCurrentState() != ServerEventManager.ServerState.READY
+            ) {
+                delay(250)
+                waited += 250
+            }
             if (isAdded) launchBrowser()
         }
     }
 
     private fun launchBrowser() {
-        val base = binding.textAccessUrl.text.toString().removeSuffix("/v1")
-        val url = if (base.isBlank()) "http://127.0.0.1:$currentPort" else base
+        // Browser chat page is served at the root path, not under /v1.
         runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("$url/")))
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("${configuredBaseUrl()}/")))
         }.onFailure {
             Toast.makeText(requireContext(), R.string.browser_open_failed, Toast.LENGTH_SHORT).show()
         }
@@ -279,6 +288,11 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
 
     /** 显示当前配置的完整访问地址。监听所有网卡(0.0.0.0)时用设备局域网IP，便于浏览器直接打开。 */
     private fun updateAccessUrl() {
+        binding.textAccessUrl.text = "${configuredBaseUrl()}/v1"
+    }
+
+    /** Base URL used for both the API (/v1) and the browser chat page (/). */
+    private fun configuredBaseUrl(): String {
         val host = when {
             currentIpAddress.isBlank() -> "127.0.0.1"
             currentIpAddress == "0.0.0.0" -> {
@@ -293,7 +307,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             else -> currentIpAddress
         }
         val scheme = if (useHttpsUrl) "https" else "http"
-        binding.textAccessUrl.text = "$scheme://$host:$currentPort/v1/responses"
+        return "$scheme://$host:$currentPort"
     }
 
     private fun setupNetworkSettings() {

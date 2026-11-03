@@ -148,10 +148,6 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
         val serverState = serverEventManager.getCurrentState()
         val serverInfo = serverEventManager.getCurrentInfo()
 
-        // Get configured IP and port to display the API endpoint
-        val configuredHost = ApiServerConfig.getIpAddress(context)
-        val configuredPort = ApiServerConfig.getPort(context)
-
         Timber.tag("ApiConsoleUI").d("[Service] Updating service status - enabled: $isServiceEnabled, state: $serverState, info: $serverInfo")
 
         when {
@@ -168,31 +164,29 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is ready")
                 binding.textServiceStatus.text = getString(R.string.service_running)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_green_dark, null))
-                binding.textListenAddress.visibility = View.GONE
-                binding.labelListenAddress.visibility = View.GONE
-                // Use actual running server info, otherwise use configured info
-                val displayHost = if (serverInfo.host.isNotEmpty()) serverInfo.host else configuredHost
-                val displayPort = if (serverInfo.port > 0) serverInfo.port else configuredPort
-                // Responses endpoint (POST for API, GET opens the Ollama-style model list
-                // in a browser) plus the Ollama-compatible model list endpoint.
+                // One server serves both: /v1 for API clients and / for the browser chat page.
                 val baseUrl = ApiServiceManager.getApiServiceBaseUrl(context)
-                val endpointUrl = "$baseUrl/v1/responses\n$baseUrl/api/tags"
-                binding.textApiEndpoint.text = endpointUrl
-                binding.textApiEndpoint.visibility = View.VISIBLE
+                binding.labelListenAddress.setText(R.string.browser_chat_url)
+                binding.textListenAddress.text = baseUrl
+                binding.textListenAddress.visibility = View.VISIBLE
+                binding.labelListenAddress.visibility = View.VISIBLE
                 binding.labelApiEndpoint.visibility = View.VISIBLE
-                Timber.tag("ApiConsoleUI").d("[Service] API endpoint displayed: $endpointUrl")
+                binding.textApiEndpoint.text = "$baseUrl/v1"
+                binding.textApiEndpoint.visibility = View.VISIBLE
+                Timber.tag("ApiConsoleUI").d("[Service] API endpoint displayed: $baseUrl/v1, browser: $baseUrl")
             }
             serverState in listOf(ServerEventManager.ServerState.STARTING, ServerEventManager.ServerState.STARTED) -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is starting")
                 binding.textServiceStatus.text = getString(R.string.service_starting)
                 binding.textServiceStatus.setTextColor(resources.getColor(android.R.color.holo_orange_dark, null))
-                binding.textListenAddress.visibility = View.GONE
-                binding.labelListenAddress.visibility = View.GONE
-                binding.textApiEndpoint.text =
-                    "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/responses\n" +
-                        "${ApiServiceManager.getApiServiceBaseUrl(context)}/api/tags"
-                binding.textApiEndpoint.visibility = View.VISIBLE
+                val baseUrl = ApiServiceManager.getApiServiceBaseUrl(context)
+                binding.labelListenAddress.setText(R.string.browser_chat_url)
+                binding.textListenAddress.text = baseUrl
+                binding.textListenAddress.visibility = View.VISIBLE
+                binding.labelListenAddress.visibility = View.VISIBLE
                 binding.labelApiEndpoint.visibility = View.VISIBLE
+                binding.textApiEndpoint.text = "$baseUrl/v1"
+                binding.textApiEndpoint.visibility = View.VISIBLE
             }
             serverState in listOf(ServerEventManager.ServerState.STOP_PREPARING, ServerEventManager.ServerState.STOPPING) -> {
                 Timber.tag("ApiConsoleUI").d("[Service] Server is stopping")

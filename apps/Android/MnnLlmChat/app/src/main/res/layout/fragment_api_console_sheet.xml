@@ -160,7 +160,7 @@
                         android:id="@+id/text_api_endpoint"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="http://127.0.0.1:8080/v1/responses"
+                        android:text="http://127.0.0.1:8080/v1"
                         android:textAppearance="?attr/textAppearanceBodyMedium"
                         android:textIsSelectable="true"
                         android:background="?attr/selectableItemBackground"
