@@ -1,5 +1,12 @@
 # 更新日志
 
+## v0.0.22 (2026-11-04)
+
+- 新增 Ollama 兼容接口：`GET /api/tags`（模型列表）、`GET /api/version`、`POST /api/pull`（流式拉取模型，NDJSON 进度）
+- 浏览器打开 `http://<设备IP>:<端口>/v1/responses` 直接返回 Ollama 格式模型列表；`POST /v1/responses` 仍为 Responses API
+- API 设置访问地址改为显示 `/v1/responses`；API 控制台同时显示 `/v1/responses` 与 `/api/tags`
+- `/api/pull` 支持模型市场名称、`ModelScope/...`、`HuggingFace/...`、`owner/repo`，复用 App 内下载器并返回进度
+
 ## v0.0.21 (2026-11-03)
 
 - 修复「测速」报错 `Cleartext HTTP traffic to 127.0.0.1 not permitted`：新增网络安全配置，仅对 `127.0.0.1`、`localhost`、`10.0.2.2` 放行明文 HTTP，其余域名仍强制 HTTPS

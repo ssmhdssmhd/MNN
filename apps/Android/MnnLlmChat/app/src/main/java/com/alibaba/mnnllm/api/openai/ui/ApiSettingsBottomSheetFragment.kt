@@ -293,7 +293,7 @@ class ApiSettingsBottomSheetFragment : BottomSheetDialogFragment() {
             else -> currentIpAddress
         }
         val scheme = if (useHttpsUrl) "https" else "http"
-        binding.textAccessUrl.text = "$scheme://$host:$currentPort/v1"
+        binding.textAccessUrl.text = "$scheme://$host:$currentPort/v1/responses"
     }
 
     private fun setupNetworkSettings() {

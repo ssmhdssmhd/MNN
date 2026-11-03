@@ -173,7 +173,10 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 // Use actual running server info, otherwise use configured info
                 val displayHost = if (serverInfo.host.isNotEmpty()) serverInfo.host else configuredHost
                 val displayPort = if (serverInfo.port > 0) serverInfo.port else configuredPort
-                val endpointUrl = "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/chat/completions"
+                // Responses endpoint (POST for API, GET opens the Ollama-style model list
+                // in a browser) plus the Ollama-compatible model list endpoint.
+                val baseUrl = ApiServiceManager.getApiServiceBaseUrl(context)
+                val endpointUrl = "$baseUrl/v1/responses\n$baseUrl/api/tags"
                 binding.textApiEndpoint.text = endpointUrl
                 binding.textApiEndpoint.visibility = View.VISIBLE
                 binding.labelApiEndpoint.visibility = View.VISIBLE
@@ -186,7 +189,8 @@ class ApiConsoleBottomSheetFragment : BottomSheetDialogFragment() {
                 binding.textListenAddress.visibility = View.GONE
                 binding.labelListenAddress.visibility = View.GONE
                 binding.textApiEndpoint.text =
-                    "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/chat/completions"
+                    "${ApiServiceManager.getApiServiceBaseUrl(context)}/v1/responses\n" +
+                        "${ApiServiceManager.getApiServiceBaseUrl(context)}/api/tags"
                 binding.textApiEndpoint.visibility = View.VISIBLE
                 binding.labelApiEndpoint.visibility = View.VISIBLE
             }

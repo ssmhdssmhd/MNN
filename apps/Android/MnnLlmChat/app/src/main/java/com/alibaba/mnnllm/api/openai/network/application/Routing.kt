@@ -3,7 +3,9 @@ package com.alibaba.mnnllm.api.openai.network.application
 import com.alibaba.mnnllm.api.openai.network.routes.anthropicRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.chatRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.modelsRoutes
+import com.alibaba.mnnllm.api.openai.network.routes.ollamaRoutes
 import com.alibaba.mnnllm.api.openai.network.routes.queueRoutes
+import com.alibaba.mnnllm.api.openai.network.routes.respondOllamaModels
 import com.alibaba.mnnllm.api.openai.network.routes.responsesRoutes
 import io.ktor.http.ContentType
 import io.ktor.server.application.Application
@@ -42,6 +44,16 @@ fun Application.configureRouting() {
 
         queueRoutes()
         modelsRoutes()
+
+        // Ollama-compatible endpoints (/api/tags, /api/version, /api/pull) so the
+        // service can be inspected in a browser and models pulled directly.
+        ollamaRoutes()
+
+        // Opening the Responses endpoint in a browser returns the model list in
+        // Ollama format; POST /v1/responses still serves the Responses API below.
+        get("/v1/responses") {
+            respondOllamaModels(call)
+        }
 
         // Anthropic-compatible endpoint (/v1/messages) with x-api-key or bearer auth.
         anthropicRoutes()
