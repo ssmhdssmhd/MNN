@@ -48,8 +48,11 @@ private fun Route.registerOllamaEndpoints(prefix: String) {
         call.respond(mapOf("version" to appVersion()))
     }
     if (prefix.isNotEmpty()) {
-        // Opening http://host:port/v1 in a browser also shows the model list.
+        // Opening http://host:port/v1 (or /v1/) in a browser shows the model list.
         get(prefix) {
+            respondOllamaModels(call)
+        }
+        get("$prefix/") {
             respondOllamaModels(call)
         }
     }

@@ -1,6 +1,7 @@
 package com.alibaba.mnnllm.api.openai.runtime
 
 import com.alibaba.mnnllm.android.llm.LlmSession
+import com.alibaba.mnnllm.android.model.ModelUtils
 import com.alibaba.mnnllm.api.openai.di.ServiceLocator
 import timber.log.Timber
 
@@ -21,7 +22,9 @@ object ApiRuntimeSessionHelper {
     private var promptCacheSessionId: String? = null
 
     fun ensureSession(modelId: String): EnsureSessionResult {
-        val result = ServiceLocator.getLlmRuntimeController().ensureSession(
+        val controller = ServiceLocator.getLlmRuntimeController()
+        val reused = reuseAliasSession(controller, modelId)
+        val result = reused ?: controller.ensureSession(
             modelId = modelId,
             useAppConfig = true
         )
@@ -30,6 +33,34 @@ object ApiRuntimeSessionHelper {
             enablePromptCacheOnce(modelId, session)
         }
         return result
+    }
+
+    /**
+     * Clients may send a model alias instead of the exact active model id. Reloading the
+     * model on every request would make responses extremely slow, so reuse the loaded
+     * session when both ids point at the same local model.
+     */
+    private fun reuseAliasSession(
+        controller: LlmRuntimeController,
+        requestedModelId: String
+    ): EnsureSessionResult? {
+        val session = controller.getActiveSession() ?: return null
+        val activeModelId = controller.getActiveModelId() ?: return null
+        if (activeModelId == requestedModelId || !session.isModelLoaded()) return null
+
+        val sameModel = runCatching {
+            val activeConfig = ModelUtils.getConfigPathForModel(activeModelId)
+            activeConfig != null &&
+                activeConfig == ModelUtils.getConfigPathForModel(requestedModelId)
+        }.getOrDefault(false)
+        if (!sameModel) return null
+
+        Timber.tag("ApiRuntime").i(
+            "Reusing loaded session for alias: requested=%s active=%s",
+            requestedModelId,
+            activeModelId
+        )
+        return EnsureSessionResult(success = true, session = session, modelId = activeModelId)
     }
 
     private fun enablePromptCacheOnce(modelId: String, session: LlmSession) {

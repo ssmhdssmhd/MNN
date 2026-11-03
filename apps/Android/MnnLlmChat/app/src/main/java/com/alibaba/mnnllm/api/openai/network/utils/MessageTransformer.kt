@@ -27,6 +27,9 @@ class MessageTransformer {
         // of extra tokens per request (the main cause of "long context, upstream slow").
         private val THINK_BLOCK_REGEX = Regex("<think>.*?</think>", RegexOption.DOT_MATCHES_ALL)
 
+        private const val MAX_HISTORY_CHARS = 24_000
+        private const val COMPACTED_HISTORY_CHARS = 14_000
+
         private fun stripThinking(content: String): String =
             content.replace(THINK_BLOCK_REGEX, "").replace("</think>", "").trim()
     }
@@ -55,7 +58,39 @@ class MessageTransformer {
         }
 
         addDialogMessagesToHistory(dialogMessages, imageProcessor, unifiedHistory, isR1Model)
-        return unifiedHistory
+        return compactHistory(unifiedHistory)
+    }
+
+    /**
+     * Caps prompt size so a very long conversation does not make every request
+     * re-prefill tens of thousands of characters. Old turns are dropped only after
+     * the history exceeds [MAX_HISTORY_CHARS], and then trimmed down to
+     * [COMPACTED_HISTORY_CHARS] in one step, so prompt-cache prefixes stay stable
+     * between compactions instead of shifting on every turn.
+     */
+    private fun compactHistory(history: List<Pair<String, String>>): List<Pair<String, String>> {
+        val totalChars = history.sumOf { it.second.length }
+        if (totalChars <= MAX_HISTORY_CHARS || history.size <= 3) return history
+
+        val system = history.firstOrNull { it.first == "system" }
+        val dialog = if (system == null) history else history.drop(1)
+        val kept = ArrayDeque<Pair<String, String>>()
+        var keptChars = 0
+        for (index in dialog.indices.reversed()) {
+            val message = dialog[index]
+            kept.addFirst(message)
+            keptChars += message.second.length
+            if (keptChars >= COMPACTED_HISTORY_CHARS) break
+        }
+
+        val compacted = ArrayList<Pair<String, String>>(kept.size + 1)
+        if (system != null) compacted.add(system)
+        compacted.addAll(kept)
+        Timber.tag("MessageTransformer").i(
+            "Compacted history: %d -> %d messages, %d -> %d chars",
+            history.size, compacted.size, totalChars, compacted.sumOf { it.second.length }
+        )
+        return compacted
     }
 
     // extract system prompt and remaining messages
