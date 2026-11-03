@@ -37,17 +37,30 @@ private val NDJSON = ContentType("application", "x-ndjson")
  * models can be pulled with the familiar Ollama protocol.
  */
 fun Route.ollamaRoutes() {
-    get("/api/version") {
+    registerOllamaEndpoints("")
+    // Also expose the same endpoints under /v1, since clients configured with the
+    // OpenAI base URL (http://host:port/v1) append /api/... to it.
+    registerOllamaEndpoints("/v1")
+}
+
+private fun Route.registerOllamaEndpoints(prefix: String) {
+    get("$prefix/api/version") {
         call.respond(mapOf("version" to appVersion()))
     }
-    get("/api/tags") {
+    if (prefix.isNotEmpty()) {
+        // Opening http://host:port/v1 in a browser also shows the model list.
+        get(prefix) {
+            respondOllamaModels(call)
+        }
+    }
+    get("$prefix/api/tags") {
         respondOllamaModels(call)
     }
-    post("/api/pull") {
+    post("$prefix/api/pull") {
         handlePull(call)
     }
     // Browser-friendly variant: /api/pull?name=owner/repo
-    get("/api/pull") {
+    get("$prefix/api/pull") {
         handlePull(call)
     }
 }
@@ -175,19 +188,56 @@ private fun resolveModelId(name: String): String? {
         return cleaned
     }
 
-    val items = ModelRepository.getModelMarketDataV2()?.llmModels
+    val cached = ModelRepository.getModelMarketDataV2()?.llmModels
         .orEmpty()
         .ifEmpty { ModelRepository.getAllCachedModels() }
-    items.firstOrNull {
+    cached.firstOrNull {
         it.modelName.equals(cleaned, true) || it.modelId.equals(cleaned, true)
     }?.let { return it.modelId }
-    items.firstOrNull { it.modelName.contains(cleaned, true) }?.let { return it.modelId }
+    cached.firstOrNull { it.modelName.contains(cleaned, true) }?.let { return it.modelId }
+
+    // The market cache is only populated after browsing the model market, so
+    // fall back to the bundled catalog to keep pull working on a fresh install.
+    val bundled = loadBundledModels()
+    bundled.firstOrNull { it.first.equals(cleaned, true) || it.second.equals(cleaned, true) }
+        ?.let { return it.second }
+    bundled.firstOrNull { it.first.contains(cleaned, true) }?.let { return it.second }
 
     if (cleaned.contains("/")) {
         return if (cleaned.startsWith("MNN/", true)) "ModelScope/$cleaned" else "HuggingFace/$cleaned"
     }
     return null
 }
+
+/** Reads `assets/model_market.json` into (modelName, modelId) pairs. */
+private fun loadBundledModels(): List<Pair<String, String>> {
+    if (bundledModels != null) return bundledModels!!
+    val models = runCatching {
+        val context = MnnLlmApplication.getAppContext()
+        val text = context.assets.open("model_market.json").bufferedReader().use { it.readText() }
+        val array = JSONObject(text).optJSONArray("models") ?: JSONArray()
+        buildList {
+            for (index in 0 until array.length()) {
+                val entry = array.optJSONObject(index) ?: continue
+                val modelName = entry.optString("modelName")
+                val sources = entry.optJSONObject("sources")
+                val scopeRepo = sources?.optString("ModelScope").orEmpty()
+                val hfRepo = sources?.optString("HuggingFace").orEmpty()
+                val modelId = when {
+                    scopeRepo.isNotBlank() -> "ModelScope/$scopeRepo"
+                    hfRepo.isNotBlank() -> "HuggingFace/$hfRepo"
+                    else -> null
+                } ?: continue
+                add(modelName to modelId)
+            }
+        }
+    }.getOrDefault(emptyList())
+    bundledModels = models
+    return models
+}
+
+@Volatile
+private var bundledModels: List<Pair<String, String>>? = null
 
 private fun jsonLine(vararg pairs: Pair<String, Any?>): String {
     val json = JSONObject()

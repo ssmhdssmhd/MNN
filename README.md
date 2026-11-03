@@ -28,7 +28,7 @@
 >
 > API 设置页新增「端点速度」：显示最近一次请求的首字延迟、生成速度（tok/s）与总耗时，并可点「测速」直接向本机端点发送一条最小请求实测延迟。
 >
-> API 服务同时提供 Ollama 兼容接口：`GET /api/tags` 返回模型列表、`POST /api/pull` 流式拉取模型；浏览器打开 `http://<设备IP>:<端口>/v1/responses` 可直接查看 Ollama 格式模型列表（`POST /v1/responses` 仍是 Responses API）。
+> API 服务同时提供 Ollama 兼容接口：`GET /api/tags` 返回模型列表、`POST /api/pull` 流式拉取模型；这些接口同时挂载在 `/v1` 前缀下（`/v1/api/tags`、`/v1/api/pull`），以 `/v1` 为 base URL 的客户端可直接拉取。浏览器打开 `http://<设备IP>:<端口>/v1` 或 `/v1/responses` 均可查看模型列表。
 >
 > API 控制台显示两个地址：模型接口 `http://<IP>:<端口>/v1`，浏览器聊天页面 `http://<IP>:<端口>`。
 >
